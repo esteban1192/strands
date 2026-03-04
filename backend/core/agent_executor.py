@@ -44,7 +44,12 @@ class AgentExecutor:
     """Builds and runs a Strands agent with its configured MCP tools."""
 
     @staticmethod
-    async def invoke(db: AsyncSession, agent_id: uuid.UUID, prompt: str) -> AgentInvocationResult:
+    async def invoke(
+        db: AsyncSession,
+        agent_id: uuid.UUID,
+        prompt: str,
+        history: List[Dict[str, Any]] | None = None,
+    ) -> AgentInvocationResult:
         """Run a prompt against an agent, using its linked MCP tools.
 
         Flow:
@@ -58,9 +63,13 @@ class AgentExecutor:
             db: Async database session.
             agent_id: UUID of the agent to invoke.
             prompt: User prompt to send to the agent.
+            history: Optional list of prior conversation messages to pre-load
+                into the agent.  Each dict must have ``role`` and ``content``
+                keys matching the Strands message format.
 
         Returns:
-            AgentInvocationResult with the text response and full message list.
+            AgentInvocationResult with the text response and the *new* messages
+            produced by this invocation (delta — excludes pre-loaded history).
 
         Raises:
             AgentExecutionError: if something goes wrong.
@@ -127,16 +136,20 @@ class AgentExecutor:
 
         # 4. Create Strands Agent and run the prompt
         # The Agent handles MCPClient lifecycle (start/stop) internally.
+        prior_messages = history or []
+        history_len = len(prior_messages)
+
         try:
             agent = Agent(
                 model=agent_model.model,
                 tools=clients,
                 system_prompt=agent_model.system_prompt or None,
+                messages=prior_messages if prior_messages else None,
             )
 
             logger.info(
-                "Invoking agent '%s' (model=%s) with %d MCP(s)",
-                agent_model.name, agent_model.model, len(clients),
+                "Invoking agent '%s' (model=%s) with %d MCP(s), %d history msgs",
+                agent_model.name, agent_model.model, len(clients), history_len,
             )
 
             result = agent(prompt)
@@ -145,14 +158,17 @@ class AgentExecutor:
             # including tool_use / tool_result blocks)
             raw_messages = getattr(agent, "messages", [])
 
-            messages = [
+            all_messages = [
                 {"role": m.get("role", "unknown"), "content": m.get("content", [])}
                 for m in raw_messages
             ]
 
+            # Return only the NEW messages (delta) — skip the pre-loaded history
+            new_messages = all_messages[history_len:]
+
             return AgentInvocationResult(
                 response=str(result),
-                messages=messages,
+                messages=new_messages,
             )
 
         except AgentExecutionError:

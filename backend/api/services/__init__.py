@@ -7,10 +7,12 @@ from .agent_service import AgentService
 from .tool_service import ToolService
 from .mcp_service import MCPService
 from .tool_parameters_service import ToolParametersService
+from .chat_service import ChatService
 
 __all__ = [
     "AgentService",
     "ToolService", 
     "MCPService",
-    "ToolParametersService"
+    "ToolParametersService",
+    "ChatService",
 ]

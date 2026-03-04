@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useApi } from '@/hooks';
-import { agentApi } from '@/api';
+import { agentApi, chatApi } from '@/api';
 import { LoadingSpinner, ErrorMessage } from '@/components/common';
-import type { AgentMessage, ContentBlock } from '@/types';
+import type { ContentBlock, ChatMessage, Chat } from '@/types';
 import './AgentChat.css';
 
 /* ------------------------------------------------------------------ */
@@ -74,7 +74,7 @@ function ToolResultContent({ content, status }: { content: { text?: string }[]; 
 /* ------------------------------------------------------------------ */
 /*  Render a single agent message (may contain many content blocks)   */
 /* ------------------------------------------------------------------ */
-function MessageBubble({ msg, agentName }: { msg: AgentMessage; agentName: string }) {
+function MessageBubble({ msg, agentName }: { msg: ChatMessage; agentName: string }) {
   return (
     <div className={`chat-message chat-message--${msg.role}`}>
       <span className="chat-message__role">{msg.role === 'user' ? 'You' : agentName}</span>
@@ -99,13 +99,17 @@ function MessageBubble({ msg, agentName }: { msg: AgentMessage; agentName: strin
 /* ------------------------------------------------------------------ */
 export default function AgentChat() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { data: agent, loading, error: loadError } = useApi(() => agentApi.getById(id!), [id]);
 
-  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [chatId, setChatId] = useState<string | null>(searchParams.get('chatId'));
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatList, setChatList] = useState<Chat[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadingChat, setLoadingChat] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -117,6 +121,28 @@ export default function AgentChat() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, sending, scrollToBottom]);
+
+  // Load chat list for this agent
+  useEffect(() => {
+    if (!id) return;
+    chatApi.listByAgent(id).then(setChatList).catch(() => {});
+  }, [id, chatId]);
+
+  // If a chatId is present (from URL or state), load its messages
+  useEffect(() => {
+    if (!id || !chatId) return;
+    setLoadingChat(true);
+    chatApi
+      .getById(id, chatId)
+      .then((detail) => {
+        setMessages(detail.messages);
+      })
+      .catch(() => {
+        setError('Failed to load chat history');
+        setChatId(null);
+      })
+      .finally(() => setLoadingChat(false));
+  }, [id, chatId]);
 
   // Auto-resize textarea
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -135,24 +161,36 @@ export default function AgentChat() {
     if (inputRef.current) inputRef.current.style.height = 'auto';
 
     // Optimistic user bubble
-    const userMessage: AgentMessage = { role: 'user', content: [{ text: prompt }] };
-    setMessages((prev) => [...prev, userMessage]);
+    const optimisticMsg: ChatMessage = {
+      id: crypto.randomUUID(),
+      chat_id: chatId ?? '',
+      role: 'user',
+      content: [{ text: prompt }],
+      ordinal: messages.length,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
     setSending(true);
 
     try {
-      const result = await agentApi.invoke(id, prompt);
-
-      // Replace the whole conversation with the server's authoritative list
-      // which includes every tool_use / tool_result block.
-      if (result.messages && result.messages.length > 0) {
-        setMessages(result.messages);
+      let result;
+      if (!chatId) {
+        // First message — create a new chat
+        result = await chatApi.create(id, prompt);
+        setChatId(result.chat_id);
+        setSearchParams({ chatId: result.chat_id }, { replace: true });
       } else {
-        // Fallback: just append a plain text assistant bubble
-        setMessages((prev) => [...prev, { role: 'assistant', content: [{ text: result.response }] }]);
+        // Follow-up message — send to existing chat
+        result = await chatApi.sendMessage(id, chatId, prompt);
       }
+
+      // Replace with the authoritative server messages
+      setMessages(result.messages);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to get response';
       setError(message);
+      // Remove optimistic message on error
+      setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
     } finally {
       setSending(false);
       inputRef.current?.focus();
@@ -163,6 +201,33 @@ export default function AgentChat() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
+    }
+  };
+
+  const handleNewChat = () => {
+    setChatId(null);
+    setMessages([]);
+    setError(null);
+    setSearchParams({}, { replace: true });
+  };
+
+  const handleSelectChat = (selectedChatId: string) => {
+    setChatId(selectedChatId);
+    setMessages([]);
+    setSearchParams({ chatId: selectedChatId }, { replace: true });
+  };
+
+  const handleDeleteChat = async (deleteChatId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!id) return;
+    try {
+      await chatApi.delete(id, deleteChatId);
+      setChatList((prev) => prev.filter((c) => c.id !== deleteChatId));
+      if (chatId === deleteChatId) {
+        handleNewChat();
+      }
+    } catch {
+      setError('Failed to delete chat');
     }
   };
 
@@ -180,53 +245,87 @@ export default function AgentChat() {
           <h1>{agent.name}</h1>
           <p className="page-subtitle">{agent.model}</p>
         </div>
-      </div>
-
-      <div className="chat-messages">
-        {messages.length === 0 && !sending && (
-          <div className="chat-messages-empty">
-            Send a message to start chatting with {agent.name}
-          </div>
-        )}
-
-        {messages.map((msg, i) => (
-          <MessageBubble key={i} msg={msg} agentName={agent.name} />
-        ))}
-
-        {sending && (
-          <div className="chat-thinking">
-            <div className="chat-thinking__dots">
-              <span className="chat-thinking__dot" />
-              <span className="chat-thinking__dot" />
-              <span className="chat-thinking__dot" />
-            </div>
-            Thinking…
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {error && <div className="chat-error">{error}</div>}
-
-      <div className="chat-input-area">
-        <textarea
-          ref={inputRef}
-          className="chat-input"
-          placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
-          value={input}
-          onChange={handleInputChange}
-          onKeyDown={handleKeyDown}
-          disabled={sending}
-          rows={1}
-        />
-        <button
-          className="chat-send-btn"
-          onClick={handleSend}
-          disabled={sending || !input.trim()}
-        >
-          {sending ? 'Sending…' : 'Send'}
+        <button className="chat-new-btn" onClick={handleNewChat} title="New chat">
+          + New Chat
         </button>
+      </div>
+
+      <div className="chat-layout">
+        {/* Sidebar with chat history */}
+        {chatList.length > 0 && (
+          <aside className="chat-sidebar">
+            <h3 className="chat-sidebar__title">History</h3>
+            <ul className="chat-sidebar__list">
+              {chatList.map((c) => (
+                <li
+                  key={c.id}
+                  className={`chat-sidebar__item${c.id === chatId ? ' chat-sidebar__item--active' : ''}`}
+                  onClick={() => handleSelectChat(c.id)}
+                >
+                  <span className="chat-sidebar__item-title">{c.title || 'Untitled'}</span>
+                  <button
+                    className="chat-sidebar__delete-btn"
+                    onClick={(e) => handleDeleteChat(c.id, e)}
+                    title="Delete chat"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </aside>
+        )}
+
+        <div className="chat-main">
+          <div className="chat-messages">
+            {loadingChat && <LoadingSpinner />}
+
+            {!loadingChat && messages.length === 0 && !sending && (
+              <div className="chat-messages-empty">
+                Send a message to start chatting with {agent.name}
+              </div>
+            )}
+
+            {messages.map((msg) => (
+              <MessageBubble key={msg.id} msg={msg} agentName={agent.name} />
+            ))}
+
+            {sending && (
+              <div className="chat-thinking">
+                <div className="chat-thinking__dots">
+                  <span className="chat-thinking__dot" />
+                  <span className="chat-thinking__dot" />
+                  <span className="chat-thinking__dot" />
+                </div>
+                Thinking…
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          {error && <div className="chat-error">{error}</div>}
+
+          <div className="chat-input-area">
+            <textarea
+              ref={inputRef}
+              className="chat-input"
+              placeholder="Type a message… (Enter to send, Shift+Enter for newline)"
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              disabled={sending}
+              rows={1}
+            />
+            <button
+              className="chat-send-btn"
+              onClick={handleSend}
+              disabled={sending || !input.trim()}
+            >
+              {sending ? 'Sending…' : 'Send'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

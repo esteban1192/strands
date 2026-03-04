@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="017" author="system" context="all">
+        <comment>Create chat_messages table for storing individual messages within a chat</comment>
+
+        <createTable schemaName="strands" tableName="chat_messages">
+            <column name="id" type="UUID" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="chat_id" type="UUID">
+                <constraints nullable="false"
+                             foreignKeyName="fk_chat_messages_chat"
+                             references="strands.chats(id)"
+                             deleteCascade="true"/>
+            </column>
+            <column name="role" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="content" type="JSONB">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ordinal" type="INTEGER">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <createIndex schemaName="strands" tableName="chat_messages" indexName="idx_chat_messages_chat_ordinal">
+            <column name="chat_id"/>
+            <column name="ordinal"/>
+        </createIndex>
+
+        <rollback>
+            <dropTable schemaName="strands" tableName="chat_messages"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

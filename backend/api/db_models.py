@@ -4,8 +4,8 @@ SQLAlchemy database models for Strands API
 import uuid
 from datetime import datetime
 from typing import Optional, List
-from sqlalchemy import Column, String, Text, Boolean, DateTime, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, String, Text, Boolean, DateTime, Integer, ForeignKey
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship, Mapped
 from sqlalchemy.sql import func
 
@@ -28,6 +28,7 @@ class AgentModel(Base):
 
     # Relationships
     agent_tools: Mapped[List["AgentToolModel"]] = relationship("AgentToolModel", back_populates="agent", cascade="all, delete-orphan")
+    chats: Mapped[List["ChatModel"]] = relationship("ChatModel", back_populates="agent", cascade="all, delete-orphan")
 
 
 class ToolModel(Base):
@@ -103,3 +104,38 @@ class AgentToolModel(Base):
     # Relationships
     agent: Mapped["AgentModel"] = relationship("AgentModel", back_populates="agent_tools")
     tool: Mapped["ToolModel"] = relationship("ToolModel", back_populates="agent_tools")
+
+
+class ChatModel(Base):
+    """SQLAlchemy model for Chats table"""
+    __tablename__ = "chats"
+    __table_args__ = {"schema": "strands"}
+
+    id: Mapped[UUID] = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id: Mapped[UUID] = Column(UUID(as_uuid=True), ForeignKey("strands.agents.id"), nullable=False)
+    title: Mapped[Optional[str]] = Column(String(255), nullable=True)
+    created_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    agent: Mapped["AgentModel"] = relationship("AgentModel", back_populates="chats")
+    messages: Mapped[List["ChatMessageModel"]] = relationship(
+        "ChatMessageModel", back_populates="chat", cascade="all, delete-orphan",
+        order_by="ChatMessageModel.ordinal",
+    )
+
+
+class ChatMessageModel(Base):
+    """SQLAlchemy model for Chat Messages table"""
+    __tablename__ = "chat_messages"
+    __table_args__ = {"schema": "strands"}
+
+    id: Mapped[UUID] = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chat_id: Mapped[UUID] = Column(UUID(as_uuid=True), ForeignKey("strands.chats.id"), nullable=False)
+    role: Mapped[str] = Column(String(50), nullable=False)
+    content: Mapped[dict] = Column(JSONB, nullable=False)
+    ordinal: Mapped[int] = Column(Integer, nullable=False)
+    created_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    chat: Mapped["ChatModel"] = relationship("ChatModel", back_populates="messages")

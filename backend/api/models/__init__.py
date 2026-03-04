@@ -39,6 +39,15 @@ from .tool_parameters_models import (
     ToolParametersUpdateRequest
 )
 
+# Chat models
+from .chat_models import (
+    ChatResponse,
+    ChatMessageResponse,
+    ChatDetailResponse,
+    ChatSendMessageRequest,
+    ChatSendMessageResponse
+)
+
 __all__ = [
     # Common
     "HealthResponse",
@@ -66,5 +75,12 @@ __all__ = [
     # Tool Parameters models
     "ToolParametersResponse",
     "ToolParametersCreateRequest",
-    "ToolParametersUpdateRequest"
+    "ToolParametersUpdateRequest",
+
+    # Chat models
+    "ChatResponse",
+    "ChatMessageResponse",
+    "ChatDetailResponse",
+    "ChatSendMessageRequest",
+    "ChatSendMessageResponse",
 ]
