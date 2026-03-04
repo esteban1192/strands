@@ -117,12 +117,19 @@ class AgentExecutor:
                 f"Agent '{agent_model.name}' has no enabled tools assigned"
             )
 
-        stmt = (
-            select(MCPModel)
-            .join(ToolModel, ToolModel.mcp_id == MCPModel.id)
-            .where(ToolModel.id.in_(tool_ids))
-            .distinct()
-        )
+        # Load the assigned tool models so we know their names and MCP ids.
+        tool_stmt = select(ToolModel).where(ToolModel.id.in_(tool_ids))
+        tool_result = await db.execute(tool_stmt)
+        assigned_tools: List[ToolModel] = list(tool_result.scalars().all())
+
+        # Build a mapping: mcp_id → set of allowed tool names
+        mcp_allowed_tools: Dict[uuid.UUID, List[str]] = {}
+        for t in assigned_tools:
+            mcp_allowed_tools.setdefault(t.mcp_id, []).append(t.name)
+
+        # Distinct MCPs that own at least one assigned tool
+        mcp_ids = list(mcp_allowed_tools.keys())
+        stmt = select(MCPModel).where(MCPModel.id.in_(mcp_ids))
         result = await db.execute(stmt)
         mcps = result.scalars().all()
 
@@ -132,14 +139,11 @@ class AgentExecutor:
             )
 
         # 2b. Determine which tools require approval
-        approval_stmt = (
-            select(ToolModel.name)
-            .where(ToolModel.id.in_(tool_ids), ToolModel.requires_approval == True)
-        )
-        approval_result = await db.execute(approval_stmt)
-        tools_requiring_approval: set[str] = {row[0] for row in approval_result.all()}
+        tools_requiring_approval: set[str] = {
+            t.name for t in assigned_tools if t.requires_approval
+        }
 
-        # 3. Build MCPClient for each MCP
+        # 3. Build MCPClient for each MCP, filtering to only the assigned tools
         clients: List[MCPClient] = []
         for mcp in mcps:
             try:
@@ -150,7 +154,13 @@ class AgentExecutor:
                     args=mcp.args,
                     env=mcp.env,
                 )
-                clients.append(MCPClient(transport_callable))
+                allowed = mcp_allowed_tools.get(mcp.id, [])
+                clients.append(
+                    MCPClient(
+                        transport_callable,
+                        tool_filters={"allowed": allowed} if allowed else None,
+                    )
+                )
             except (MCPConnectionError, Exception) as exc:
                 # Clean up any clients we already built
                 logger.error("Failed to build MCP client for '%s': %s", mcp.name, exc)
