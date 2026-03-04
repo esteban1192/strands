@@ -72,23 +72,24 @@ function ToolResultContent({ content, status }: { content: { text?: string }[]; 
 }
 
 /* ------------------------------------------------------------------ */
-/*  Render a single agent message (may contain many content blocks)   */
+/*  Render a single chat message (one content block per row)          */
 /* ------------------------------------------------------------------ */
 function MessageBubble({ msg, agentName }: { msg: ChatMessage; agentName: string }) {
+  const block = msg.content;
+  // For tool_result messages (role="user" in Strands), display as assistant
+  const displayRole = msg.message_type === 'tool_result' ? 'assistant' : msg.role;
+
   return (
-    <div className={`chat-message chat-message--${msg.role}`}>
-      <span className="chat-message__role">{msg.role === 'user' ? 'You' : agentName}</span>
+    <div className={`chat-message chat-message--${displayRole}`}>
+      <span className="chat-message__role">{displayRole === 'user' ? 'You' : agentName}</span>
       <div className="chat-message__bubble">
-        {msg.content.map((block, i) => {
-          if (isTextBlock(block)) return <TextContent key={i} text={block.text} />;
-          if (isToolUseBlock(block))
-            return <ToolUseContent key={i} name={block.toolUse.name} input={block.toolUse.input} />;
-          if (isToolResultBlock(block))
-            return (
-              <ToolResultContent key={i} content={block.toolResult.content} status={block.toolResult.status} />
-            );
-          return null;
-        })}
+        {isTextBlock(block) && <TextContent text={block.text} />}
+        {isToolUseBlock(block) && (
+          <ToolUseContent name={block.toolUse.name} input={block.toolUse.input} />
+        )}
+        {isToolResultBlock(block) && (
+          <ToolResultContent content={block.toolResult.content} status={block.toolResult.status} />
+        )}
       </div>
     </div>
   );
@@ -165,9 +166,12 @@ export default function AgentChat() {
       id: crypto.randomUUID(),
       chat_id: chatId ?? '',
       role: 'user',
-      content: [{ text: prompt }],
+      message_type: 'text',
+      content: { text: prompt },
       ordinal: messages.length,
       created_at: new Date().toISOString(),
+      tool_call: null,
+      tool_result: null,
     };
     setMessages((prev) => [...prev, optimisticMsg]);
     setSending(true);

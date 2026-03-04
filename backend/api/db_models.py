@@ -126,16 +126,59 @@ class ChatModel(Base):
 
 
 class ChatMessageModel(Base):
-    """SQLAlchemy model for Chat Messages table"""
+    """SQLAlchemy model for Chat Messages table.
+
+    Each row represents a single content block — one text, one tool_call,
+    or one tool_result.  The ``message_type`` column classifies it.
+    """
     __tablename__ = "chat_messages"
     __table_args__ = {"schema": "strands"}
 
     id: Mapped[UUID] = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chat_id: Mapped[UUID] = Column(UUID(as_uuid=True), ForeignKey("strands.chats.id"), nullable=False)
     role: Mapped[str] = Column(String(50), nullable=False)
+    message_type: Mapped[str] = Column(String(50), nullable=False, default="text")
     content: Mapped[dict] = Column(JSONB, nullable=False)
     ordinal: Mapped[int] = Column(Integer, nullable=False)
     created_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
     chat: Mapped["ChatModel"] = relationship("ChatModel", back_populates="messages")
+    tool_call: Mapped[Optional["ChatToolCallModel"]] = relationship(
+        "ChatToolCallModel", back_populates="message", uselist=False, cascade="all, delete-orphan",
+    )
+    tool_result: Mapped[Optional["ChatToolResultModel"]] = relationship(
+        "ChatToolResultModel", back_populates="message", uselist=False, cascade="all, delete-orphan",
+    )
+
+
+class ChatToolCallModel(Base):
+    """Structured data for a tool_call message (1:1 with ChatMessageModel)."""
+    __tablename__ = "chat_tool_calls"
+    __table_args__ = {"schema": "strands"}
+
+    id: Mapped[UUID] = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    message_id: Mapped[UUID] = Column(UUID(as_uuid=True), ForeignKey("strands.chat_messages.id"), nullable=False, unique=True)
+    tool_use_id: Mapped[str] = Column(String(255), nullable=False)
+    tool_name: Mapped[str] = Column(String(255), nullable=False)
+    input: Mapped[Optional[dict]] = Column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    message: Mapped["ChatMessageModel"] = relationship("ChatMessageModel", back_populates="tool_call")
+
+
+class ChatToolResultModel(Base):
+    """Structured data for a tool_result message (1:1 with ChatMessageModel)."""
+    __tablename__ = "chat_tool_results"
+    __table_args__ = {"schema": "strands"}
+
+    id: Mapped[UUID] = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    message_id: Mapped[UUID] = Column(UUID(as_uuid=True), ForeignKey("strands.chat_messages.id"), nullable=False, unique=True)
+    tool_use_id: Mapped[str] = Column(String(255), nullable=False)
+    status: Mapped[str] = Column(String(50), nullable=False)
+    result: Mapped[Optional[dict]] = Column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    message: Mapped["ChatMessageModel"] = relationship("ChatMessageModel", back_populates="tool_result")

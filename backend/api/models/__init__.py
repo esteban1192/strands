@@ -45,7 +45,9 @@ from .chat_models import (
     ChatMessageResponse,
     ChatDetailResponse,
     ChatSendMessageRequest,
-    ChatSendMessageResponse
+    ChatSendMessageResponse,
+    ChatToolCallResponse,
+    ChatToolResultResponse
 )
 
 __all__ = [
@@ -83,4 +85,6 @@ __all__ = [
     "ChatDetailResponse",
     "ChatSendMessageRequest",
     "ChatSendMessageResponse",
+    "ChatToolCallResponse",
+    "ChatToolResultResponse",
 ]

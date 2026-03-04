@@ -16,14 +16,37 @@ class ChatResponse(BaseModel):
     updated_at: datetime
 
 
+class ChatToolCallResponse(BaseModel):
+    """Structured data extracted from a tool_call message."""
+    id: uuid.UUID
+    message_id: uuid.UUID
+    tool_use_id: str
+    tool_name: str
+    input: Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+
+class ChatToolResultResponse(BaseModel):
+    """Structured data extracted from a tool_result message."""
+    id: uuid.UUID
+    message_id: uuid.UUID
+    tool_use_id: str
+    status: str
+    result: Optional[Any] = None
+    created_at: datetime
+
+
 class ChatMessageResponse(BaseModel):
-    """Single message within a chat."""
+    """Single message within a chat (one content block per row)."""
     id: uuid.UUID
     chat_id: uuid.UUID
     role: str
-    content: List[Dict[str, Any]]
+    message_type: str
+    content: Dict[str, Any]
     ordinal: int
     created_at: datetime
+    tool_call: Optional[ChatToolCallResponse] = None
+    tool_result: Optional[ChatToolResultResponse] = None
 
 
 class ChatDetailResponse(BaseModel):

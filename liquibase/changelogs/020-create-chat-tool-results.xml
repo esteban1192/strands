@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="020" author="system" context="all">
+        <comment>Create chat_tool_results table for structured tool result data</comment>
+
+        <createTable schemaName="strands" tableName="chat_tool_results">
+            <column name="id" type="UUID" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="message_id" type="UUID">
+                <constraints nullable="false"
+                             foreignKeyName="fk_chat_tool_results_message"
+                             references="strands.chat_messages(id)"
+                             deleteCascade="true"
+                             unique="true"
+                             uniqueConstraintName="uq_chat_tool_results_message"/>
+            </column>
+            <column name="tool_use_id" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="result" type="JSONB">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <createIndex schemaName="strands" tableName="chat_tool_results" indexName="idx_chat_tool_results_tool_use_id">
+            <column name="tool_use_id"/>
+        </createIndex>
+
+        <createIndex schemaName="strands" tableName="chat_tool_results" indexName="idx_chat_tool_results_status">
+            <column name="status"/>
+        </createIndex>
+
+        <rollback>
+            <dropTable schemaName="strands" tableName="chat_tool_results"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

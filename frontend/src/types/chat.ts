@@ -6,13 +6,36 @@ export interface Chat {
   updated_at: string;
 }
 
+export type ChatMessageType = 'text' | 'tool_call' | 'tool_result';
+
+export interface ChatToolCall {
+  id: string;
+  message_id: string;
+  tool_use_id: string;
+  tool_name: string;
+  input: unknown;
+  created_at: string;
+}
+
+export interface ChatToolResult {
+  id: string;
+  message_id: string;
+  tool_use_id: string;
+  status: 'success' | 'error';
+  result: unknown;
+  created_at: string;
+}
+
 export interface ChatMessage {
   id: string;
   chat_id: string;
   role: 'user' | 'assistant';
-  content: import('./agent').ContentBlock[];
+  message_type: ChatMessageType;
+  content: import('./agent').ContentBlock;
   ordinal: number;
   created_at: string;
+  tool_call: ChatToolCall | null;
+  tool_result: ChatToolResult | null;
 }
 
 export interface ChatDetail {

@@ -29,5 +29,8 @@
     <include file="changelogs/015-add-system-prompt-to-agents.xml"/>
     <include file="changelogs/016-create-chats-table.xml"/>
     <include file="changelogs/017-create-chat-messages-table.xml"/>
+    <include file="changelogs/018-add-message-type-to-chat-messages.xml"/>
+    <include file="changelogs/019-create-chat-tool-calls.xml"/>
+    <include file="changelogs/020-create-chat-tool-results.xml"/>
 
 </databaseChangeLog>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="018" author="system" context="all">
+        <comment>Add message_type column to chat_messages table</comment>
+
+        <addColumn schemaName="strands" tableName="chat_messages">
+            <column name="message_type" type="VARCHAR(50)" defaultValue="text">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+
+        <createIndex schemaName="strands" tableName="chat_messages" indexName="idx_chat_messages_type">
+            <column name="message_type"/>
+        </createIndex>
+
+        <rollback>
+            <dropIndex schemaName="strands" tableName="chat_messages" indexName="idx_chat_messages_type"/>
+            <dropColumn schemaName="strands" tableName="chat_messages" columnName="message_type"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
