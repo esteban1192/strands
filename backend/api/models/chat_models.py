@@ -44,6 +44,7 @@ class ChatMessageResponse(BaseModel):
     message_type: str
     content: Dict[str, Any]
     ordinal: int
+    is_approved: bool = False
     created_at: datetime
     tool_call: Optional[ChatToolCallResponse] = None
     tool_result: Optional[ChatToolResultResponse] = None

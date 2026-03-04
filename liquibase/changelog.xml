@@ -32,5 +32,7 @@
     <include file="changelogs/018-add-message-type-to-chat-messages.xml"/>
     <include file="changelogs/019-create-chat-tool-calls.xml"/>
     <include file="changelogs/020-create-chat-tool-results.xml"/>
+    <include file="changelogs/021-add-requires-approval-to-tools.xml"/>
+    <include file="changelogs/022-add-is-approved-to-chat-messages.xml"/>
 
 </databaseChangeLog>

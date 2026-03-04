@@ -65,6 +65,12 @@
   cursor: pointer;
 }
 
+.form-field__help {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  font-weight: 400;
+}
+
 .code-input {
   font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
   font-size: 0.85rem;

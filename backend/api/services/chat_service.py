@@ -200,6 +200,7 @@ class ChatService:
         db: AsyncSession,
         chat_id: uuid.UUID,
         messages: List[Dict[str, Any]],
+        tools_requiring_approval: Optional[set[str]] = None,
     ) -> List[ChatMessageResponse]:
         """Explode Strands messages into individual chat_messages rows.
 
@@ -208,8 +209,20 @@ class ChatService:
         ``message_type``.  For ``tool_call`` and ``tool_result`` types,
         structured child records are also created.
 
+        Args:
+            tools_requiring_approval: Optional set of tool names whose
+                tool_call (and corresponding tool_result) rows should be
+                stored with ``is_approved=False``.  Everything else is
+                stored as ``is_approved=True``.
+
         Returns the newly-inserted messages as response models.
         """
+        approval_tools = tools_requiring_approval or set()
+
+        # Collect tool_use_ids that need approval so we can also mark
+        # their corresponding tool_result rows.
+        pending_tool_use_ids: set[str] = set()
+
         next_ordinal = await ChatService.get_next_ordinal(db, chat_id)
         new_rows: List[ChatMessageModel] = []
         ordinal = next_ordinal
@@ -221,12 +234,26 @@ class ChatService:
             for block in content_blocks:
                 msg_type = _classify_block(block)
 
+                # Determine approval state
+                is_approved = True
+                if msg_type == "tool_call":
+                    tool_name = block.get("toolUse", {}).get("name", "")
+                    tool_use_id = block.get("toolUse", {}).get("toolUseId", "")
+                    if tool_name in approval_tools:
+                        is_approved = False
+                        pending_tool_use_ids.add(tool_use_id)
+                elif msg_type == "tool_result":
+                    tool_use_id = block.get("toolResult", {}).get("toolUseId", "")
+                    if tool_use_id in pending_tool_use_ids:
+                        is_approved = False
+
                 row = ChatMessageModel(
                     chat_id=chat_id,
                     role=role,
                     message_type=msg_type,
                     content=block,
                     ordinal=ordinal,
+                    is_approved=is_approved,
                 )
                 db.add(row)
                 # Flush to get the generated id for child records
@@ -262,6 +289,171 @@ class ChatService:
             await db.refresh(row, attribute_names=["id", "created_at", "tool_call", "tool_result"])
 
         return [ChatService._to_message_response(r) for r in new_rows]
+
+    @staticmethod
+    async def approve_tool_call(
+        db: AsyncSession,
+        message_id: uuid.UUID,
+    ) -> Optional[ChatMessageResponse]:
+        """Mark a tool_call message as approved.
+
+        Returns the updated message, or None if not found / not a tool_call.
+        """
+        stmt = (
+            select(ChatMessageModel)
+            .options(
+                selectinload(ChatMessageModel.tool_call),
+                selectinload(ChatMessageModel.tool_result),
+            )
+            .where(ChatMessageModel.id == message_id)
+        )
+        result = await db.execute(stmt)
+        msg = result.scalar_one_or_none()
+
+        if not msg or msg.message_type != "tool_call":
+            return None
+
+        msg.is_approved = True
+        await db.commit()
+        await db.refresh(msg, attribute_names=["is_approved"])
+        return ChatService._to_message_response(msg)
+
+    @staticmethod
+    async def reject_tool_call(
+        db: AsyncSession,
+        message_id: uuid.UUID,
+    ) -> Optional[ChatMessageResponse]:
+        """Mark a tool_call message (and its companion tool_result) as rejected.
+
+        Sets ``is_approved = True`` so the message is no longer pending, and
+        updates the companion tool_result content to indicate rejection.
+
+        Returns the updated message, or None if not found / not a tool_call.
+        """
+        stmt = (
+            select(ChatMessageModel)
+            .options(
+                selectinload(ChatMessageModel.tool_call),
+                selectinload(ChatMessageModel.tool_result),
+            )
+            .where(ChatMessageModel.id == message_id)
+        )
+        result = await db.execute(stmt)
+        msg = result.scalar_one_or_none()
+
+        if not msg or msg.message_type != "tool_call":
+            return None
+
+        tool_use_id = msg.tool_call.tool_use_id if msg.tool_call else None
+
+        # Mark the tool_call row as "resolved" (no longer pending).
+        # We set is_approved = True so it is not shown as pending again,
+        # but the companion tool_result will carry the rejection payload.
+        msg.is_approved = True
+
+        # Find and update the companion tool_result row
+        if tool_use_id:
+            tr_stmt = (
+                select(ChatMessageModel)
+                .options(selectinload(ChatMessageModel.tool_result))
+                .join(ChatToolResultModel, ChatToolResultModel.message_id == ChatMessageModel.id)
+                .where(
+                    ChatMessageModel.chat_id == msg.chat_id,
+                    ChatToolResultModel.tool_use_id == tool_use_id,
+                )
+            )
+            tr_result = await db.execute(tr_stmt)
+            tr_msg = tr_result.scalar_one_or_none()
+            if tr_msg:
+                tr_msg.is_approved = True
+                tr_msg.content = {
+                    "toolResult": {
+                        "toolUseId": tool_use_id,
+                        "status": "error",
+                        "content": [{"text": "Tool call was rejected by the user."}],
+                    }
+                }
+                if tr_msg.tool_result:
+                    tr_msg.tool_result.status = "error"
+                    tr_msg.tool_result.result = [{"text": "Tool call was rejected by the user."}]
+
+        await db.commit()
+        await db.refresh(msg, attribute_names=["is_approved"])
+        return ChatService._to_message_response(msg)
+
+    @staticmethod
+    async def get_pending_tool_calls(
+        db: AsyncSession,
+        chat_id: uuid.UUID,
+    ) -> List[ChatMessageResponse]:
+        """Return all unapproved tool_call messages for a chat."""
+        stmt = (
+            select(ChatMessageModel)
+            .options(
+                selectinload(ChatMessageModel.tool_call),
+                selectinload(ChatMessageModel.tool_result),
+            )
+            .where(
+                ChatMessageModel.chat_id == chat_id,
+                ChatMessageModel.message_type == "tool_call",
+                ChatMessageModel.is_approved == False,
+            )
+            .order_by(ChatMessageModel.ordinal)
+        )
+        result = await db.execute(stmt)
+        rows = result.scalars().all()
+        return [ChatService._to_message_response(r) for r in rows]
+
+    @staticmethod
+    async def update_tool_result(
+        db: AsyncSession,
+        chat_id: uuid.UUID,
+        tool_use_id: str,
+        real_result: Any,
+    ) -> None:
+        """Replace placeholder tool_result content with the real execution result.
+
+        Finds the tool_result row matching ``tool_use_id`` and updates both
+        the JSONB ``content`` column and the structured ``ChatToolResultModel``.
+        Also marks the row as approved.
+        """
+        tr_stmt = (
+            select(ChatMessageModel)
+            .options(selectinload(ChatMessageModel.tool_result))
+            .join(ChatToolResultModel, ChatToolResultModel.message_id == ChatMessageModel.id)
+            .where(
+                ChatMessageModel.chat_id == chat_id,
+                ChatToolResultModel.tool_use_id == tool_use_id,
+            )
+        )
+        result = await db.execute(tr_stmt)
+        tr_msg = result.scalar_one_or_none()
+
+        if not tr_msg:
+            return
+
+        # Build the result content in Strands format
+        if isinstance(real_result, dict) and "error" in real_result:
+            result_content = [{"text": real_result["error"]}]
+            status = "error"
+        else:
+            result_text = real_result if isinstance(real_result, str) else str(real_result)
+            result_content = [{"text": result_text}]
+            status = "success"
+
+        tr_msg.is_approved = True
+        tr_msg.content = {
+            "toolResult": {
+                "toolUseId": tool_use_id,
+                "status": status,
+                "content": result_content,
+            }
+        }
+        if tr_msg.tool_result:
+            tr_msg.tool_result.status = status
+            tr_msg.tool_result.result = result_content
+
+        await db.commit()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -310,6 +502,7 @@ class ChatService:
             message_type=msg.message_type,
             content=msg.content,
             ordinal=msg.ordinal,
+            is_approved=msg.is_approved,
             created_at=msg.created_at,
             tool_call=tool_call_resp,
             tool_result=tool_result_resp,

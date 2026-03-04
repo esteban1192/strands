@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="021" author="system" context="all">
+        <comment>Add requires_approval boolean to tools table (default TRUE)</comment>
+
+        <addColumn schemaName="strands" tableName="tools">
+            <column name="requires_approval" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+
+        <rollback>
+            <dropColumn schemaName="strands" tableName="tools" columnName="requires_approval"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

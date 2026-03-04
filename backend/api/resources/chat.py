@@ -19,6 +19,7 @@ from api.models import (
 from api.services import ChatService
 from core.agent_executor import AgentExecutor, AgentExecutionError
 from core.exceptions import MCPConnectionError
+from core.mcp_manager import MCPManager
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +85,10 @@ async def create_chat(
         raise HTTPException(status_code=502, detail=e.message)
 
     # Persist the new messages returned by the executor
-    stored = await ChatService.add_messages(db, chat.id, result.messages)
+    stored = await ChatService.add_messages(
+        db, chat.id, result.messages,
+        tools_requiring_approval=result.tools_requiring_approval,
+    )
     await ChatService.touch_updated_at(db, chat.id)
 
     return ChatSendMessageResponse(
@@ -127,10 +131,145 @@ async def send_message(
         raise HTTPException(status_code=502, detail=e.message)
 
     # Persist only the new messages (delta)
-    stored = await ChatService.add_messages(db, chat_id, result.messages)
+    stored = await ChatService.add_messages(
+        db, chat_id, result.messages,
+        tools_requiring_approval=result.tools_requiring_approval,
+    )
     await ChatService.touch_updated_at(db, chat_id)
 
     # Return ALL messages so the frontend has the full picture
+    all_messages = await ChatService.get_messages(db, chat_id)
+
+    return ChatSendMessageResponse(
+        chat_id=chat_id,
+        response=result.response,
+        messages=all_messages,
+    )
+
+
+# ------------------------------------------------------------------
+# Approve a pending tool call
+# ------------------------------------------------------------------
+
+@router.post(
+    "/{chat_id}/messages/{message_id}/approve",
+    response_model=ChatSendMessageResponse,
+)
+async def approve_tool_call(
+    agent_id: uuid.UUID,
+    chat_id: uuid.UUID,
+    message_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Approve a pending tool call, execute it via MCP, and resume the agent.
+
+    Flow:
+      1. Mark the tool_call message as approved.
+      2. Execute the real tool call through the MCP server.
+      3. Replace the placeholder tool_result with the real result.
+      4. Re-invoke the agent with the corrected history so it can continue.
+    """
+    chat = await ChatService.get_chat(db, chat_id)
+    if not chat or chat.agent_id != agent_id:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    approved = await ChatService.approve_tool_call(db, message_id)
+    if not approved:
+        raise HTTPException(status_code=404, detail="Tool call message not found or already approved")
+
+    # Execute the real tool call
+    tool_name = approved.tool_call.tool_name if approved.tool_call else None
+    tool_input = approved.tool_call.input if approved.tool_call else {}
+    tool_use_id = approved.tool_call.tool_use_id if approved.tool_call else None
+
+    if not tool_name:
+        raise HTTPException(status_code=400, detail="No tool call data found")
+
+    # Execute tool via MCP and get real result
+    try:
+        real_result = await MCPManager.execute_tool(db, agent_id, tool_name, tool_input or {})
+    except Exception as exc:
+        logger.error("Tool execution failed for '%s': %s", tool_name, exc)
+        real_result = {"error": str(exc)}
+
+    # Update the companion tool_result row with the real result
+    await ChatService.update_tool_result(
+        db, chat_id, tool_use_id, real_result,
+    )
+
+    # Re-invoke the agent with corrected history
+    history = await ChatService.get_messages_as_dicts(db, chat_id)
+    try:
+        result = await AgentExecutor.invoke(
+            db, agent_id, "", history=history,
+        )
+    except AgentExecutionError as e:
+        raise _map_agent_error(e)
+    except MCPConnectionError as e:
+        raise HTTPException(status_code=502, detail=e.message)
+
+    # Persist new messages from the continued conversation
+    if result.messages:
+        await ChatService.add_messages(
+            db, chat_id, result.messages,
+            tools_requiring_approval=result.tools_requiring_approval,
+        )
+    await ChatService.touch_updated_at(db, chat_id)
+
+    all_messages = await ChatService.get_messages(db, chat_id)
+
+    return ChatSendMessageResponse(
+        chat_id=chat_id,
+        response=result.response,
+        messages=all_messages,
+    )
+
+
+# ------------------------------------------------------------------
+# Reject a pending tool call
+# ------------------------------------------------------------------
+
+@router.post(
+    "/{chat_id}/messages/{message_id}/reject",
+    response_model=ChatSendMessageResponse,
+)
+async def reject_tool_call(
+    agent_id: uuid.UUID,
+    chat_id: uuid.UUID,
+    message_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Reject a pending tool call.
+
+    Marks the tool call as resolved and feeds a rejection message back
+    to the agent so it can adapt its response.
+    """
+    chat = await ChatService.get_chat(db, chat_id)
+    if not chat or chat.agent_id != agent_id:
+        raise HTTPException(status_code=404, detail="Chat not found")
+
+    rejected = await ChatService.reject_tool_call(db, message_id)
+    if not rejected:
+        raise HTTPException(status_code=404, detail="Tool call message not found or already resolved")
+
+    # Re-invoke the agent with history containing the rejection
+    history = await ChatService.get_messages_as_dicts(db, chat_id)
+    try:
+        result = await AgentExecutor.invoke(
+            db, agent_id, "", history=history,
+        )
+    except AgentExecutionError as e:
+        raise _map_agent_error(e)
+    except MCPConnectionError as e:
+        raise HTTPException(status_code=502, detail=e.message)
+
+    if result.messages:
+        await ChatService.add_messages(
+            db, chat_id, result.messages,
+            tools_requiring_approval=result.tools_requiring_approval,
+        )
+    await ChatService.touch_updated_at(db, chat_id)
+
     all_messages = await ChatService.get_messages(db, chat_id)
 
     return ChatSendMessageResponse(

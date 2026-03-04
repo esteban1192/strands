@@ -25,4 +25,20 @@ export const chatApi = {
   /** Delete a chat and all its messages. */
   delete: (agentId: string, chatId: string) =>
     apiClient.delete(`/agents/${agentId}/chats/${chatId}`).then((r) => r.data),
+
+  /** Approve a pending tool call. */
+  approveToolCall: (agentId: string, chatId: string, messageId: string) =>
+    apiClient
+      .post<ChatSendMessageResponse>(
+        `/agents/${agentId}/chats/${chatId}/messages/${messageId}/approve`,
+      )
+      .then((r) => r.data),
+
+  /** Reject a pending tool call. */
+  rejectToolCall: (agentId: string, chatId: string, messageId: string) =>
+    apiClient
+      .post<ChatSendMessageResponse>(
+        `/agents/${agentId}/chats/${chatId}/messages/${messageId}/reject`,
+      )
+      .then((r) => r.data),
 };

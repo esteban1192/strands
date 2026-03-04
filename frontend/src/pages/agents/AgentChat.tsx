@@ -31,18 +31,51 @@ function TextContent({ text }: { text: string }) {
   return <span className="chat-text">{text}</span>;
 }
 
-function ToolUseContent({ name, input }: { name: string; input: unknown }) {
+function ToolUseContent({
+  name,
+  input,
+  isPending,
+  onApprove,
+  onReject,
+  isProcessing,
+}: {
+  name: string;
+  input: unknown;
+  isPending?: boolean;
+  onApprove?: () => void;
+  onReject?: () => void;
+  isProcessing?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const inputStr = typeof input === 'string' ? input : JSON.stringify(input, null, 2);
 
   return (
-    <div className="chat-tool-use">
+    <div className={`chat-tool-use${isPending ? ' chat-tool-use--pending' : ''}`}>
       <button className="chat-tool-use__header" onClick={() => setOpen((v) => !v)}>
         <span className="chat-tool-use__icon">&#9881;</span>
         <span className="chat-tool-use__name">{name}</span>
+        {isPending && <span className="chat-tool-use__badge">Awaiting approval</span>}
         <span className="chat-tool-use__toggle">{open ? '▾' : '▸'}</span>
       </button>
       {open && <pre className="chat-tool-use__input">{inputStr}</pre>}
+      {isPending && (
+        <div className="chat-tool-use__actions">
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={onApprove}
+            disabled={isProcessing}
+          >
+            {isProcessing ? 'Approving…' : '✓ Approve'}
+          </button>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={onReject}
+            disabled={isProcessing}
+          >
+            {isProcessing ? 'Rejecting…' : '✗ Reject'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -74,10 +107,23 @@ function ToolResultContent({ content, status }: { content: { text?: string }[]; 
 /* ------------------------------------------------------------------ */
 /*  Render a single chat message (one content block per row)          */
 /* ------------------------------------------------------------------ */
-function MessageBubble({ msg, agentName }: { msg: ChatMessage; agentName: string }) {
+function MessageBubble({
+  msg,
+  agentName,
+  onApprove,
+  onReject,
+  isProcessing,
+}: {
+  msg: ChatMessage;
+  agentName: string;
+  onApprove?: (messageId: string) => void;
+  onReject?: (messageId: string) => void;
+  isProcessing?: boolean;
+}) {
   const block = msg.content;
   // For tool_result messages (role="user" in Strands), display as assistant
   const displayRole = msg.message_type === 'tool_result' ? 'assistant' : msg.role;
+  const isPending = msg.message_type === 'tool_call' && !msg.is_approved;
 
   return (
     <div className={`chat-message chat-message--${displayRole}`}>
@@ -85,7 +131,14 @@ function MessageBubble({ msg, agentName }: { msg: ChatMessage; agentName: string
       <div className="chat-message__bubble">
         {isTextBlock(block) && <TextContent text={block.text} />}
         {isToolUseBlock(block) && (
-          <ToolUseContent name={block.toolUse.name} input={block.toolUse.input} />
+          <ToolUseContent
+            name={block.toolUse.name}
+            input={block.toolUse.input}
+            isPending={isPending}
+            onApprove={() => onApprove?.(msg.id)}
+            onReject={() => onReject?.(msg.id)}
+            isProcessing={isProcessing}
+          />
         )}
         {isToolResultBlock(block) && (
           <ToolResultContent content={block.toolResult.content} status={block.toolResult.status} />
@@ -111,6 +164,7 @@ export default function AgentChat() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
+  const [processingApproval, setProcessingApproval] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -169,6 +223,7 @@ export default function AgentChat() {
       message_type: 'text',
       content: { text: prompt },
       ordinal: messages.length,
+      is_approved: true,
       created_at: new Date().toISOString(),
       tool_call: null,
       tool_result: null,
@@ -235,6 +290,36 @@ export default function AgentChat() {
     }
   };
 
+  const handleApproveToolCall = async (messageId: string) => {
+    if (!id || !chatId) return;
+    setProcessingApproval(messageId);
+    setError(null);
+    try {
+      const result = await chatApi.approveToolCall(id, chatId, messageId);
+      setMessages(result.messages);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to approve tool call';
+      setError(message);
+    } finally {
+      setProcessingApproval(null);
+    }
+  };
+
+  const handleRejectToolCall = async (messageId: string) => {
+    if (!id || !chatId) return;
+    setProcessingApproval(messageId);
+    setError(null);
+    try {
+      const result = await chatApi.rejectToolCall(id, chatId, messageId);
+      setMessages(result.messages);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to reject tool call';
+      setError(message);
+    } finally {
+      setProcessingApproval(null);
+    }
+  };
+
   if (loading) return <LoadingSpinner />;
   if (loadError) return <ErrorMessage message={loadError} />;
   if (!agent) return <ErrorMessage message="Agent not found" />;
@@ -291,7 +376,14 @@ export default function AgentChat() {
             )}
 
             {messages.map((msg) => (
-              <MessageBubble key={msg.id} msg={msg} agentName={agent.name} />
+              <MessageBubble
+                key={msg.id}
+                msg={msg}
+                agentName={agent.name}
+                onApprove={handleApproveToolCall}
+                onReject={handleRejectToolCall}
+                isProcessing={processingApproval === msg.id}
+              />
             ))}
 
             {sending && (

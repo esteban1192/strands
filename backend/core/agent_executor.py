@@ -30,9 +30,11 @@ class AgentInvocationResult:
     Attributes:
         response: The final text-only response from the agent.
         messages: The complete conversation including tool_use / tool_result blocks.
+        tools_requiring_approval: Set of tool names that require user approval.
     """
     response: str
     messages: List[Dict[str, Any]] = field(default_factory=list)
+    tools_requiring_approval: set = field(default_factory=set)
 
 
 class AgentExecutionError(CoreException):
@@ -115,6 +117,14 @@ class AgentExecutor:
                 f"No MCP servers found for agent '{agent_model.name}' tools"
             )
 
+        # 2b. Determine which tools require approval
+        approval_stmt = (
+            select(ToolModel.name)
+            .where(ToolModel.id.in_(tool_ids), ToolModel.requires_approval == True)
+        )
+        approval_result = await db.execute(approval_stmt)
+        tools_requiring_approval: set[str] = {row[0] for row in approval_result.all()}
+
         # 3. Build MCPClient for each MCP
         clients: List[MCPClient] = []
         for mcp in mcps:
@@ -169,6 +179,7 @@ class AgentExecutor:
             return AgentInvocationResult(
                 response=str(result),
                 messages=new_messages,
+                tools_requiring_approval=tools_requiring_approval,
             )
 
         except AgentExecutionError:

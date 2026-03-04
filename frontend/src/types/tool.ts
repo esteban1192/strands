@@ -5,6 +5,7 @@ export interface Tool {
   name: string;
   description: string | null;
   is_active: boolean;
+  requires_approval: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -22,6 +23,7 @@ export interface ToolCreateRequest {
   mcp_id?: string | null;
   description?: string | null;
   is_active?: boolean;
+  requires_approval?: boolean;
 }
 
 export interface ToolUpdateRequest {
@@ -29,4 +31,5 @@ export interface ToolUpdateRequest {
   mcp_id?: string | null;
   description?: string | null;
   is_active?: boolean;
+  requires_approval?: boolean;
 }

@@ -16,6 +16,7 @@ import uuid
 from typing import List, Dict, Any, Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from api.services import MCPService, ToolService, ToolParametersService
 from api.models import ToolResponse
@@ -135,6 +136,85 @@ class MCPManager:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    @staticmethod
+    async def execute_tool(
+        db: AsyncSession,
+        agent_id: uuid.UUID,
+        tool_name: str,
+        tool_input: Dict[str, Any],
+    ) -> Any:
+        """Execute a single tool call via its MCP server.
+
+        Looks up the tool by name, finds the MCP it belongs to, connects,
+        calls the tool, and returns the raw result text.
+
+        Args:
+            db: Async database session.
+            agent_id: UUID of the agent (used to resolve tool→MCP mapping).
+            tool_name: Name of the tool to call.
+            tool_input: Input arguments for the tool call.
+
+        Returns:
+            The tool result as a string.
+
+        Raises:
+            MCPConnectionError: if something goes wrong connecting to the MCP.
+        """
+        from strands.tools.mcp import MCPClient
+        from api.db_models import ToolModel as ToolDBModel
+
+        # Find the tool and its MCP
+        stmt = (
+            select(ToolDBModel)
+            .where(ToolDBModel.name == tool_name)
+        )
+        result = await db.execute(stmt)
+        tool = result.scalar_one_or_none()
+
+        if not tool or not tool.mcp_id:
+            raise MCPConnectionError(f"Tool '{tool_name}' not found or has no MCP server")
+
+        mcp = await MCPService.get_model_by_id(db, tool.mcp_id)
+        if mcp is None:
+            raise MCPConnectionError(f"MCP server for tool '{tool_name}' not found")
+
+        transport_callable = MCPManager._get_transport_callable(
+            mcp.transport_type, mcp.url,
+            command=mcp.command,
+            args=mcp.args,
+            env=mcp.env,
+        )
+
+        try:
+            client = MCPClient(transport_callable)
+            client.start()
+        except Exception as exc:
+            raise MCPConnectionError(
+                f"Could not connect to MCP server '{mcp.name}': {exc}"
+            ) from exc
+
+        try:
+            # Use the MCP client to call the tool directly
+            result = client.call_tool_sync(tool_name, tool_input)
+            # Extract text from the result
+            if hasattr(result, "content"):
+                texts = []
+                for block in result.content:
+                    if hasattr(block, "text"):
+                        texts.append(block.text)
+                return "\n".join(texts) if texts else str(result)
+            return str(result)
+        except Exception as exc:
+            logger.error("Tool execution failed for '%s': %s", tool_name, exc)
+            raise MCPConnectionError(
+                f"Tool execution failed for '{tool_name}': {exc}"
+            ) from exc
+        finally:
+            try:
+                client.stop(None, None, None)
+            except Exception:
+                logger.debug("Error closing MCP client (ignored)", exc_info=True)
 
     @staticmethod
     async def sync_tools(db: AsyncSession, mcp_id: uuid.UUID) -> List[ToolResponse]:
@@ -269,6 +349,7 @@ class MCPManager:
                 name=existing.name,
                 description=existing.description,
                 is_active=existing.is_active,
+                requires_approval=existing.requires_approval,
                 mcp_id=existing.mcp_id,
                 mcp_assigned=True,
                 parameters_count=0,
@@ -290,6 +371,7 @@ class MCPManager:
             name=new_tool.name,
             description=new_tool.description,
             is_active=new_tool.is_active,
+            requires_approval=new_tool.requires_approval,
             mcp_id=new_tool.mcp_id,
             mcp_assigned=True,
             parameters_count=0,

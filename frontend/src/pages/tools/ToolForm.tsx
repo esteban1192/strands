@@ -18,6 +18,7 @@ export default function ToolForm() {
     description: '',
     mcp_id: null,
     is_active: true,
+    requires_approval: true,
   });
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
@@ -32,6 +33,7 @@ export default function ToolForm() {
           description: tool.description,
           mcp_id: tool.mcp_id,
           is_active: tool.is_active,
+          requires_approval: tool.requires_approval,
         });
       })
       .catch((err: Error) => setError(err.message))
@@ -93,6 +95,14 @@ export default function ToolForm() {
             <input type="checkbox" checked={form.is_active} onChange={(e) => setForm((f) => ({ ...f, is_active: e.target.checked }))} />
             Active
           </label>
+        </div>
+
+        <div className="form-field form-field--inline">
+          <label>
+            <input type="checkbox" checked={form.requires_approval ?? true} onChange={(e) => setForm((f) => ({ ...f, requires_approval: e.target.checked }))} />
+            Requires Approval
+          </label>
+          <span className="form-field__help">When enabled, tool calls must be approved by the user before execution</span>
         </div>
 
         <div className="form-actions">

@@ -25,6 +25,7 @@ class ToolService:
             name=tool.name,
             description=tool.description,
             is_active=tool.is_active,
+            requires_approval=tool.requires_approval,
             mcp_id=tool.mcp_id,
             mcp_name=tool.mcp.name if tool.mcp else None,
             mcp_assigned=tool.mcp_id is not None,
@@ -95,6 +96,7 @@ class ToolService:
             name=tool_data.name,
             description=tool_data.description,
             is_active=tool_data.is_active,
+            requires_approval=tool_data.requires_approval,
             mcp_id=tool_data.mcp_id
         )
         db.add(tool)
@@ -113,6 +115,8 @@ class ToolService:
             update_data["description"] = tool_data.description
         if tool_data.is_active is not None:
             update_data["is_active"] = tool_data.is_active
+        if tool_data.requires_approval is not None:
+            update_data["requires_approval"] = tool_data.requires_approval
         if tool_data.mcp_id is not None:
             update_data["mcp_id"] = tool_data.mcp_id
         

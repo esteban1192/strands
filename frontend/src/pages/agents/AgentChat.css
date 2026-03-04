@@ -237,6 +237,11 @@
   background: color-mix(in srgb, var(--color-surface) 60%, transparent);
 }
 
+.chat-tool-use--pending {
+  border-color: #f59e0b;
+  background: color-mix(in srgb, #fef3c7 15%, var(--color-surface));
+}
+
 .chat-tool-use__header {
   display: flex;
   align-items: center;
@@ -283,6 +288,60 @@
   overflow-y: auto;
   background: var(--color-surface);
   color: var(--color-text-primary);
+}
+
+.chat-tool-use__badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #b45309;
+  background: #fef3c7;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.chat-tool-use__actions {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  border-top: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 80%, transparent);
+}
+
+.chat-tool-use__actions .btn-sm {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.78rem;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.chat-tool-use__actions .btn-primary {
+  background: #059669;
+  color: #fff;
+  border-color: #059669;
+}
+
+.chat-tool-use__actions .btn-primary:hover:not(:disabled) {
+  background: #047857;
+}
+
+.chat-tool-use__actions .btn-secondary {
+  background: transparent;
+  color: var(--color-error, #ef4444);
+  border-color: var(--color-error, #ef4444);
+}
+
+.chat-tool-use__actions .btn-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-error, #ef4444) 10%, transparent);
+}
+
+.chat-tool-use__actions .btn-sm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ===== Tool-Result Block ===== */

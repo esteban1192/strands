@@ -33,6 +33,7 @@ export interface ChatMessage {
   message_type: ChatMessageType;
   content: import('./agent').ContentBlock;
   ordinal: number;
+  is_approved: boolean;
   created_at: string;
   tool_call: ChatToolCall | null;
   tool_result: ChatToolResult | null;

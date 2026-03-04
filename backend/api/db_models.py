@@ -41,6 +41,7 @@ class ToolModel(Base):
     name: Mapped[str] = Column(String(255), nullable=False, unique=True)
     description: Mapped[Optional[str]] = Column(Text, nullable=True)
     is_active: Mapped[bool] = Column(Boolean, nullable=False, default=True)
+    requires_approval: Mapped[bool] = Column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -140,6 +141,7 @@ class ChatMessageModel(Base):
     message_type: Mapped[str] = Column(String(50), nullable=False, default="text")
     content: Mapped[dict] = Column(JSONB, nullable=False)
     ordinal: Mapped[int] = Column(Integer, nullable=False)
+    is_approved: Mapped[bool] = Column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
