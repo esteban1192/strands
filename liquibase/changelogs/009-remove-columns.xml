@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!-- Remove configuration from agents -->
+    <changeSet id="009-remove-agents-configuration" author="system" context="all">
+        <comment>Remove configuration column from agents table</comment>
+        <dropColumn tableName="agents" schemaName="strands" columnName="configuration"/>
+        <rollback>
+            <addColumn tableName="agents" schemaName="strands">
+                <column name="configuration" type="JSONB"/>
+            </addColumn>
+        </rollback>
+    </changeSet>
+
+    <!-- Remove configuration_override and usage_priority from agent_tools -->
+    <changeSet id="009-remove-agent-tools-columns" author="system" context="all">
+        <comment>Remove configuration_override and usage_priority from agent_tools table</comment>
+        <dropIndex indexName="idx_agent_tools_priority" tableName="agent_tools" schemaName="strands"/>
+        <dropColumn tableName="agent_tools" schemaName="strands" columnName="configuration_override"/>
+        <dropColumn tableName="agent_tools" schemaName="strands" columnName="usage_priority"/>
+        <rollback>
+            <addColumn tableName="agent_tools" schemaName="strands">
+                <column name="configuration_override" type="JSONB"/>
+                <column name="usage_priority" type="INTEGER" defaultValueNumeric="0">
+                    <constraints nullable="false"/>
+                </column>
+            </addColumn>
+            <createIndex indexName="idx_agent_tools_priority" tableName="agent_tools" schemaName="strands">
+                <column name="usage_priority"/>
+            </createIndex>
+        </rollback>
+    </changeSet>
+
+    <!-- Remove configuration from mcps -->
+    <changeSet id="009-remove-mcps-configuration" author="system" context="all">
+        <comment>Remove configuration column from mcps table</comment>
+        <dropColumn tableName="mcps" schemaName="strands" columnName="configuration"/>
+        <rollback>
+            <addColumn tableName="mcps" schemaName="strands">
+                <column name="configuration" type="JSONB"/>
+            </addColumn>
+        </rollback>
+    </changeSet>
+
+    <!-- Rename parameter_name to name and remove columns from tool_parameters -->
+    <changeSet id="009-update-tool-parameters" author="system" context="all">
+        <comment>Rename parameter_name to name, remove parameter_value, validation_rules, and sort_order from tool_parameters</comment>
+
+        <!-- Drop the unique constraint that references parameter_name -->
+        <dropUniqueConstraint tableName="tool_parameters" schemaName="strands" constraintName="uk_tool_parameters_tool_name"/>
+
+        <!-- Drop indexes on columns being removed/renamed -->
+        <dropIndex indexName="idx_tool_parameters_name" tableName="tool_parameters" schemaName="strands"/>
+
+        <!-- Rename parameter_name to name -->
+        <renameColumn tableName="tool_parameters" schemaName="strands"
+                      oldColumnName="parameter_name" newColumnName="name"
+                      columnDataType="VARCHAR(255)"/>
+
+        <!-- Drop removed columns -->
+        <dropColumn tableName="tool_parameters" schemaName="strands" columnName="parameter_value"/>
+        <dropColumn tableName="tool_parameters" schemaName="strands" columnName="validation_rules"/>
+        <dropColumn tableName="tool_parameters" schemaName="strands" columnName="sort_order"/>
+
+        <!-- Recreate unique constraint with new column name -->
+        <addUniqueConstraint tableName="tool_parameters" schemaName="strands"
+                             columnNames="tool_id, name"
+                             constraintName="uk_tool_parameters_tool_name"/>
+
+        <!-- Recreate index with new column name -->
+        <createIndex indexName="idx_tool_parameters_name" tableName="tool_parameters" schemaName="strands">
+            <column name="name"/>
+        </createIndex>
+
+        <rollback>
+            <dropIndex indexName="idx_tool_parameters_name" tableName="tool_parameters" schemaName="strands"/>
+            <dropUniqueConstraint tableName="tool_parameters" schemaName="strands" constraintName="uk_tool_parameters_tool_name"/>
+            <renameColumn tableName="tool_parameters" schemaName="strands"
+                          oldColumnName="name" newColumnName="parameter_name"
+                          columnDataType="VARCHAR(255)"/>
+            <addColumn tableName="tool_parameters" schemaName="strands">
+                <column name="parameter_value" type="TEXT"/>
+                <column name="validation_rules" type="JSONB"/>
+                <column name="sort_order" type="INTEGER" defaultValueNumeric="0">
+                    <constraints nullable="false"/>
+                </column>
+            </addColumn>
+            <addUniqueConstraint tableName="tool_parameters" schemaName="strands"
+                                 columnNames="tool_id, parameter_name"
+                                 constraintName="uk_tool_parameters_tool_name"/>
+            <createIndex indexName="idx_tool_parameters_name" tableName="tool_parameters" schemaName="strands">
+                <column name="parameter_name"/>
+            </createIndex>
+        </rollback>
+    </changeSet>
+
+    <!-- Remove tool_type, configuration, and version from tools -->
+    <changeSet id="009-remove-tools-columns" author="system" context="all">
+        <comment>Remove tool_type, configuration, and version from tools table</comment>
+
+        <!-- Drop the unique constraint that references version -->
+        <dropUniqueConstraint tableName="tools" schemaName="strands" constraintName="uk_tools_name_version"/>
+
+        <!-- Drop indexes on columns being removed -->
+        <dropIndex indexName="idx_tools_type" tableName="tools" schemaName="strands"/>
+
+        <!-- Drop columns -->
+        <dropColumn tableName="tools" schemaName="strands" columnName="tool_type"/>
+        <dropColumn tableName="tools" schemaName="strands" columnName="configuration"/>
+        <dropColumn tableName="tools" schemaName="strands" columnName="version"/>
+
+        <!-- Add unique constraint on name only -->
+        <addUniqueConstraint tableName="tools" schemaName="strands"
+                             columnNames="name"
+                             constraintName="uk_tools_name"/>
+
+        <rollback>
+            <dropUniqueConstraint tableName="tools" schemaName="strands" constraintName="uk_tools_name"/>
+            <addColumn tableName="tools" schemaName="strands">
+                <column name="tool_type" type="VARCHAR(100)">
+                    <constraints nullable="false"/>
+                </column>
+                <column name="configuration" type="JSONB"/>
+                <column name="version" type="VARCHAR(50)" defaultValue="1.0.0">
+                    <constraints nullable="false"/>
+                </column>
+            </addColumn>
+            <addUniqueConstraint tableName="tools" schemaName="strands"
+                                 columnNames="name, version"
+                                 constraintName="uk_tools_name_version"/>
+            <createIndex indexName="idx_tools_type" tableName="tools" schemaName="strands">
+                <column name="tool_type"/>
+            </createIndex>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

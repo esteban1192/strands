@@ -1,0 +1,126 @@
+.list-page {
+  max-width: 1100px;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+  gap: 1rem;
+}
+
+.page-header h1 {
+  margin: 0 0 0.2rem;
+  font-size: 1.6rem;
+  font-weight: 700;
+}
+
+.data-table-wrapper {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.data-table thead {
+  background: var(--color-table-header);
+}
+
+.data-table th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.data-table td {
+  padding: 0.75rem 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.clickable-row {
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.clickable-row:hover {
+  background: var(--color-hover);
+}
+
+.cell-primary {
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.cell-description {
+  color: var(--color-text-secondary);
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cell-date {
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.cell-actions {
+  display: flex;
+  gap: 0.25rem;
+  justify-content: flex-end;
+}
+
+/* Filter bar */
+.list-filters {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.filter-select {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-size: 0.85rem;
+  min-width: 180px;
+}
+
+.filter-count {
+  font-size: 0.82rem;
+  color: var(--color-text-secondary);
+}
+
+/* MCP column */
+.cell-mcp {
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+/* Pagination */
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1rem;
+  padding: 0.5rem 0;
+}
+
+.pagination-info {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}

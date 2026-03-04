@@ -1,0 +1,131 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: strands-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: strands
+      POSTGRES_USER: strands_user
+      POSTGRES_PASSWORD: strands_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./liquibase/init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - strands-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U strands_user -d strands"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: strands-pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - strands-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Liquibase runner for database migrations
+  liquibase:
+    image: liquibase/liquibase:latest
+    container_name: strands-liquibase
+    command: ["liquibase", "update"]
+    volumes:
+      - ./liquibase:/liquibase/changelog
+      - ./liquibase/drivers/postgresql-42.7.1.jar:/liquibase/lib/postgresql.jar
+    environment:
+      LIQUIBASE_COMMAND_URL: jdbc:postgresql://postgres:5432/strands
+      LIQUIBASE_COMMAND_USERNAME: strands_user
+      LIQUIBASE_COMMAND_PASSWORD: strands_password
+      LIQUIBASE_COMMAND_CHANGELOG_FILE: changelog.xml
+    networks:
+      - strands-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # FastAPI backend service
+  api:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: strands-api
+    restart: unless-stopped
+    env_file:
+      - .api.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    networks:
+      - strands-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # React frontend service
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: dev
+    container_name: strands-frontend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=development
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    networks:
+      - strands-network
+    depends_on:
+      - api
+
+  # MCP Memory Server for testing (stdio→streamable HTTP via supergateway)
+  mcp-memory:
+    image: node:20-slim
+    container_name: strands-mcp-memory
+    restart: unless-stopped
+    command: >
+      npx -y supergateway
+      --stdio "npx -y @modelcontextprotocol/server-memory"
+      --port 8000
+      --outputTransport streamableHttp
+      --streamableHttpPath /mcp
+      --healthEndpoint /health
+    networks:
+      - strands-network
+    ports:
+      - "8001:8000"
+
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  strands-network:
+    driver: bridge

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:ext="http://www.liquibase.org/xml/ns/dbchangelog-ext"
+    xmlns:pro="http://www.liquibase.org/xml/ns/pro"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd
+        http://www.liquibase.org/xml/ns/dbchangelog-ext
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-ext.xsd
+        http://www.liquibase.org/xml/ns/pro
+        http://www.liquibase.org/xml/ns/pro/liquibase-pro-latest.xsd">
+
+    <!-- Include all changelog files -->
+    <include file="changelogs/001-create-schema.xml"/>
+    <include file="changelogs/002-create-mcps-table.xml"/>
+    <include file="changelogs/003-create-agents-table.xml"/>
+    <include file="changelogs/004-create-tools-table.xml"/>
+    <include file="changelogs/005-create-tool-parameters-table.xml"/>
+    <include file="changelogs/006-create-agent-tools-relationship.xml"/>
+    <include file="changelogs/007-create-indexes.xml"/>
+    <include file="changelogs/008-insert-sample-data.xml"/>
+    <include file="changelogs/009-remove-columns.xml"/>
+    <include file="changelogs/010-add-model-to-agents.xml"/>
+    <include file="changelogs/011-make-model-mandatory.xml"/>
+    <include file="changelogs/012-update-sample-agent-models.xml"/>
+    <include file="changelogs/013-add-mcp-transport-fields.xml"/>
+    <include file="changelogs/014-add-mcp-stdio-fields.xml"/>
+
+</databaseChangeLog>

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="006-create-agent-tools-relationship" author="system" context="all">
+        <comment>Create Agent-Tools many-to-many relationship table</comment>
+        
+        <createTable tableName="agent_tools" schemaName="strands">
+            <column name="id" type="UUID" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="agent_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="tool_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="added_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_enabled" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="configuration_override" type="JSONB"/>
+            <column name="usage_priority" type="INTEGER" defaultValueNumeric="0">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addUniqueConstraint 
+            tableName="agent_tools" 
+            columnNames="agent_id, tool_id" 
+            constraintName="uk_agent_tools_agent_tool"
+            schemaName="strands"/>
+
+        <rollback>
+            DROP TABLE IF EXISTS strands.agent_tools;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="006-add-agent-tools-foreign-keys" author="system" context="all">
+        <comment>Add foreign key constraints for agent-tools relationship table</comment>
+        
+        <addForeignKeyConstraint 
+            baseTableName="agent_tools" 
+            baseColumnNames="agent_id"
+            referencedTableName="agents"
+            referencedColumnNames="id"
+            constraintName="fk_agent_tools_agent_id"
+            baseTableSchemaName="strands"
+            referencedTableSchemaName="strands"
+            onDelete="CASCADE"
+            onUpdate="CASCADE"/>
+
+        <addForeignKeyConstraint 
+            baseTableName="agent_tools" 
+            baseColumnNames="tool_id"
+            referencedTableName="tools"
+            referencedColumnNames="id"
+            constraintName="fk_agent_tools_tool_id"
+            baseTableSchemaName="strands"
+            referencedTableSchemaName="strands"
+            onDelete="CASCADE"
+            onUpdate="CASCADE"/>
+
+        <rollback>
+            ALTER TABLE strands.agent_tools DROP CONSTRAINT IF EXISTS fk_agent_tools_agent_id;
+            ALTER TABLE strands.agent_tools DROP CONSTRAINT IF EXISTS fk_agent_tools_tool_id;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

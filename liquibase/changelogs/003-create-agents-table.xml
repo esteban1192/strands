@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="003-create-agents-table" author="system" context="all">
+        <comment>Create Agents table for AI agents in the system</comment>
+        
+        <createTable tableName="agents" schemaName="strands">
+            <column name="id" type="UUID" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(255)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="TEXT"/>
+            <column name="configuration" type="JSONB"/>
+            <column name="status" type="VARCHAR(50)" defaultValue="active">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addUniqueConstraint 
+            tableName="agents" 
+            columnNames="name" 
+            constraintName="uk_agents_name"
+            schemaName="strands"/>
+
+        <rollback>
+            DROP TABLE IF EXISTS strands.agents;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="003-add-agents-status-check" author="system" context="all">
+        <comment>Add check constraint for agents status field</comment>
+        
+        <sql>
+            ALTER TABLE strands.agents ADD CONSTRAINT ck_agents_status 
+            CHECK (status IN ('active', 'inactive', 'paused'));
+        </sql>
+
+        <rollback>
+            ALTER TABLE strands.agents DROP CONSTRAINT IF EXISTS ck_agents_status;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

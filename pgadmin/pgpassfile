@@ -1,0 +1,2 @@
+postgres:5432:strands:strands_user:strands_password
+postgres:5432:*:strands_user:strands_password

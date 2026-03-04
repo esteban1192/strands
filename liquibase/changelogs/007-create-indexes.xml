@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="007-create-indexes" author="system" context="all">
+        <comment>Create indexes for improved query performance</comment>
+        
+        <!-- MCPs indexes -->
+        <createIndex indexName="idx_mcps_name" tableName="mcps" schemaName="strands">
+            <column name="name"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_mcps_created_at" tableName="mcps" schemaName="strands">
+            <column name="created_at"/>
+        </createIndex>
+
+        <!-- Agents indexes -->
+        <createIndex indexName="idx_agents_name" tableName="agents" schemaName="strands">
+            <column name="name"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_agents_status" tableName="agents" schemaName="strands">
+            <column name="status"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_agents_created_at" tableName="agents" schemaName="strands">
+            <column name="created_at"/>
+        </createIndex>
+
+        <!-- Tools indexes -->
+        <createIndex indexName="idx_tools_mcp_id" tableName="tools" schemaName="strands">
+            <column name="mcp_id"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_tools_name" tableName="tools" schemaName="strands">
+            <column name="name"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_tools_type" tableName="tools" schemaName="strands">
+            <column name="tool_type"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_tools_active" tableName="tools" schemaName="strands">
+            <column name="is_active"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_tools_created_at" tableName="tools" schemaName="strands">
+            <column name="created_at"/>
+        </createIndex>
+
+        <!-- Tool Parameters indexes -->
+        <createIndex indexName="idx_tool_parameters_tool_id" tableName="tool_parameters" schemaName="strands">
+            <column name="tool_id"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_tool_parameters_name" tableName="tool_parameters" schemaName="strands">
+            <column name="parameter_name"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_tool_parameters_type" tableName="tool_parameters" schemaName="strands">
+            <column name="parameter_type"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_tool_parameters_required" tableName="tool_parameters" schemaName="strands">
+            <column name="is_required"/>
+        </createIndex>
+
+        <!-- Agent Tools indexes -->
+        <createIndex indexName="idx_agent_tools_agent_id" tableName="agent_tools" schemaName="strands">
+            <column name="agent_id"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_agent_tools_tool_id" tableName="agent_tools" schemaName="strands">
+            <column name="tool_id"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_agent_tools_enabled" tableName="agent_tools" schemaName="strands">
+            <column name="is_enabled"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_agent_tools_priority" tableName="agent_tools" schemaName="strands">
+            <column name="usage_priority"/>
+        </createIndex>
+        
+        <createIndex indexName="idx_agent_tools_added_at" tableName="agent_tools" schemaName="strands">
+            <column name="added_at"/>
+        </createIndex>
+
+        <rollback>
+            <!-- Drop indexes in reverse order -->
+            <dropIndex indexName="idx_agent_tools_added_at" tableName="agent_tools" schemaName="strands"/>
+            <dropIndex indexName="idx_agent_tools_priority" tableName="agent_tools" schemaName="strands"/>
+            <dropIndex indexName="idx_agent_tools_enabled" tableName="agent_tools" schemaName="strands"/>
+            <dropIndex indexName="idx_agent_tools_tool_id" tableName="agent_tools" schemaName="strands"/>
+            <dropIndex indexName="idx_agent_tools_agent_id" tableName="agent_tools" schemaName="strands"/>
+            <dropIndex indexName="idx_tool_parameters_required" tableName="tool_parameters" schemaName="strands"/>
+            <dropIndex indexName="idx_tool_parameters_type" tableName="tool_parameters" schemaName="strands"/>
+            <dropIndex indexName="idx_tool_parameters_name" tableName="tool_parameters" schemaName="strands"/>
+            <dropIndex indexName="idx_tool_parameters_tool_id" tableName="tool_parameters" schemaName="strands"/>
+            <dropIndex indexName="idx_tools_created_at" tableName="tools" schemaName="strands"/>
+            <dropIndex indexName="idx_tools_active" tableName="tools" schemaName="strands"/>
+            <dropIndex indexName="idx_tools_type" tableName="tools" schemaName="strands"/>
+            <dropIndex indexName="idx_tools_name" tableName="tools" schemaName="strands"/>
+            <dropIndex indexName="idx_tools_mcp_id" tableName="tools" schemaName="strands"/>
+            <dropIndex indexName="idx_agents_created_at" tableName="agents" schemaName="strands"/>
+            <dropIndex indexName="idx_agents_status" tableName="agents" schemaName="strands"/>
+            <dropIndex indexName="idx_agents_name" tableName="agents" schemaName="strands"/>
+            <dropIndex indexName="idx_mcps_created_at" tableName="mcps" schemaName="strands"/>
+            <dropIndex indexName="idx_mcps_name" tableName="mcps" schemaName="strands"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="013" author="system" context="all">
+        <comment>Add transport_type and url columns to mcps table for MCP server connectivity</comment>
+
+        <addColumn schemaName="strands" tableName="mcps">
+            <column name="transport_type" type="VARCHAR(50)" defaultValue="streamable_http">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+
+        <addColumn schemaName="strands" tableName="mcps">
+            <column name="url" type="VARCHAR(2048)">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+
+        <addColumn schemaName="strands" tableName="mcps">
+            <column name="synced_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+
+        <rollback>
+            <dropColumn schemaName="strands" tableName="mcps" columnName="transport_type"/>
+            <dropColumn schemaName="strands" tableName="mcps" columnName="url"/>
+            <dropColumn schemaName="strands" tableName="mcps" columnName="synced_at"/>
+        </rollback>
+    </changeSet>
+</databaseChangeLog>

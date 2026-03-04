@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="008-insert-sample-data" author="system" context="development">
+        <comment>Insert sample data for development and testing</comment>
+        
+        <!-- Insert sample MCPs -->
+        <insert tableName="mcps" schemaName="strands">
+            <column name="id" valueComputed="gen_random_uuid()"/>
+            <column name="name" value="default_mcp"/>
+            <column name="description" value="Default Model Context Protocol instance"/>
+        </insert>
+        
+        <insert tableName="mcps" schemaName="strands">
+            <column name="id" valueComputed="gen_random_uuid()"/>
+            <column name="name" value="file_operations_mcp"/>
+            <column name="description" value="MCP for file system operations"/>
+        </insert>
+
+        <!-- Insert sample Agents -->
+        <insert tableName="agents" schemaName="strands">
+            <column name="id" valueComputed="gen_random_uuid()"/>
+            <column name="name" value="coding_assistant"/>
+            <column name="description" value="AI coding assistant for software development"/>
+            <column name="status" value="active"/>
+        </insert>
+        
+        <insert tableName="agents" schemaName="strands">
+            <column name="id" valueComputed="gen_random_uuid()"/>
+            <column name="name" value="data_analyst"/>
+            <column name="description" value="AI agent specialized in data analysis and visualization"/>
+            <column name="status" value="active"/>
+        </insert>
+
+        <!-- Insert sample Tools -->
+        <insert tableName="tools" schemaName="strands">
+            <column name="id" valueComputed="gen_random_uuid()"/>
+            <column name="name" value="file_reader"/>
+            <column name="description" value="Tool for reading file contents"/>
+            <column name="tool_type" value="file_system"/>
+            <column name="is_active" valueBoolean="true"/>
+        </insert>
+        
+        <insert tableName="tools" schemaName="strands">
+            <column name="id" valueComputed="gen_random_uuid()"/>
+            <column name="name" value="code_executor"/>
+            <column name="description" value="Tool for executing code snippets safely"/>
+            <column name="tool_type" value="execution"/>
+            <column name="is_active" valueBoolean="true"/>
+        </insert>
+        
+        <insert tableName="tools" schemaName="strands">
+            <column name="id" valueComputed="gen_random_uuid()"/>
+            <column name="name" value="web_scraper"/>
+            <column name="description" value="Tool for scraping web content"/>
+            <column name="tool_type" value="web"/>
+            <column name="is_active" valueBoolean="true"/>
+        </insert>
+
+        <rollback>
+            DELETE FROM strands.agent_tools;
+            DELETE FROM strands.tool_parameters;
+            DELETE FROM strands.tools;
+            DELETE FROM strands.agents;
+            DELETE FROM strands.mcps;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

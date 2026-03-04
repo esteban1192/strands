@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.20.xsd">
+
+    <changeSet id="012" author="system" context="development">
+        <comment>Update sample agents with model values</comment>
+        
+        <!-- Update existing sample agents with appropriate model values -->
+        <sql>
+            UPDATE strands.agents 
+            SET model = 'gpt-4' 
+            WHERE name = 'coding_assistant';
+        </sql>
+        
+        <sql>
+            UPDATE strands.agents 
+            SET model = 'claude-3-sonnet' 
+            WHERE name = 'data_analyst';
+        </sql>
+
+        <rollback>
+            <sql>
+                UPDATE strands.agents SET model = 'unknown' WHERE name IN ('coding_assistant', 'data_analyst');
+            </sql>
+        </rollback>
+    </changeSet>
+</databaseChangeLog>
