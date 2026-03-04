@@ -11,6 +11,7 @@ Core modules orchestrate services + external SDKs.
 
 from .mcp_manager import MCPManager
 from .agent_executor import AgentExecutor, AgentExecutionError, AgentInvocationResult
+from .hooks import ToolApprovalHook
 from .exceptions import (
     CoreException,
     MCPConnectionError,
@@ -23,6 +24,7 @@ __all__ = [
     "AgentExecutor",
     "AgentExecutionError",
     "AgentInvocationResult",
+    "ToolApprovalHook",
     "CoreException",
     "MCPConnectionError",
     "MCPSyncError",

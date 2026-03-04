@@ -167,7 +167,8 @@ async def approve_tool_call(
       1. Mark the tool_call message as approved.
       2. Execute the real tool call through the MCP server.
       3. Replace the placeholder tool_result with the real result.
-      4. Re-invoke the agent with the corrected history so it can continue.
+      4. If no more pending tool calls remain, re-invoke the agent with the
+         corrected history so it can continue.
     """
     chat = await ChatService.get_chat(db, chat_id)
     if not chat or chat.agent_id != agent_id:
@@ -197,30 +198,37 @@ async def approve_tool_call(
         db, chat_id, tool_use_id, real_result,
     )
 
-    # Re-invoke the agent with corrected history
-    history = await ChatService.get_messages_as_dicts(db, chat_id)
-    try:
-        result = await AgentExecutor.invoke(
-            db, agent_id, "", history=history,
-        )
-    except AgentExecutionError as e:
-        raise _map_agent_error(e)
-    except MCPConnectionError as e:
-        raise HTTPException(status_code=502, detail=e.message)
+    # Only re-invoke the agent when ALL pending tool calls have been resolved.
+    # If other tool calls are still awaiting approval, return the current
+    # messages without invoking the model.
+    pending = await ChatService.get_pending_tool_calls(db, chat_id)
+    if not pending:
+        # All resolved — let the agent continue from the tool results.
+        # Pass prompt=None so no empty user message is injected.
+        history = await ChatService.get_messages_as_dicts(db, chat_id)
+        try:
+            result = await AgentExecutor.invoke(
+                db, agent_id, None, history=history,
+            )
+        except AgentExecutionError as e:
+            raise _map_agent_error(e)
+        except MCPConnectionError as e:
+            raise HTTPException(status_code=502, detail=e.message)
 
-    # Persist new messages from the continued conversation
-    if result.messages:
-        await ChatService.add_messages(
-            db, chat_id, result.messages,
-            tools_requiring_approval=result.tools_requiring_approval,
-        )
+        # Persist new messages from the continued conversation
+        if result.messages:
+            await ChatService.add_messages(
+                db, chat_id, result.messages,
+                tools_requiring_approval=result.tools_requiring_approval,
+            )
+
     await ChatService.touch_updated_at(db, chat_id)
 
     all_messages = await ChatService.get_messages(db, chat_id)
 
     return ChatSendMessageResponse(
         chat_id=chat_id,
-        response=result.response,
+        response=result.response if not pending else "",
         messages=all_messages,
     )
 
@@ -242,7 +250,8 @@ async def reject_tool_call(
     """Reject a pending tool call.
 
     Marks the tool call as resolved and feeds a rejection message back
-    to the agent so it can adapt its response.
+    to the agent so it can adapt its response.  The agent is only
+    re-invoked once all pending tool calls have been resolved.
     """
     chat = await ChatService.get_chat(db, chat_id)
     if not chat or chat.agent_id != agent_id:
@@ -252,29 +261,34 @@ async def reject_tool_call(
     if not rejected:
         raise HTTPException(status_code=404, detail="Tool call message not found or already resolved")
 
-    # Re-invoke the agent with history containing the rejection
-    history = await ChatService.get_messages_as_dicts(db, chat_id)
-    try:
-        result = await AgentExecutor.invoke(
-            db, agent_id, "", history=history,
-        )
-    except AgentExecutionError as e:
-        raise _map_agent_error(e)
-    except MCPConnectionError as e:
-        raise HTTPException(status_code=502, detail=e.message)
+    # Only re-invoke when ALL pending tool calls have been resolved.
+    pending = await ChatService.get_pending_tool_calls(db, chat_id)
+    if not pending:
+        # All resolved — let the agent continue.
+        # Pass prompt=None so no empty user message is injected.
+        history = await ChatService.get_messages_as_dicts(db, chat_id)
+        try:
+            result = await AgentExecutor.invoke(
+                db, agent_id, None, history=history,
+            )
+        except AgentExecutionError as e:
+            raise _map_agent_error(e)
+        except MCPConnectionError as e:
+            raise HTTPException(status_code=502, detail=e.message)
 
-    if result.messages:
-        await ChatService.add_messages(
-            db, chat_id, result.messages,
-            tools_requiring_approval=result.tools_requiring_approval,
-        )
+        if result.messages:
+            await ChatService.add_messages(
+                db, chat_id, result.messages,
+                tools_requiring_approval=result.tools_requiring_approval,
+            )
+
     await ChatService.touch_updated_at(db, chat_id)
 
     all_messages = await ChatService.get_messages(db, chat_id)
 
     return ChatSendMessageResponse(
         chat_id=chat_id,
-        response=result.response,
+        response=result.response if not pending else "",
         messages=all_messages,
     )
 

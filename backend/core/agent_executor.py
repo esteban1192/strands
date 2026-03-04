@@ -6,11 +6,12 @@ Responsibilities:
   - Build MCPClient instances for each MCP (stdio or streamable_http)
   - Create a Strands Agent, run a prompt, and return the response
   - Manage MCP client lifecycle (start/stop)
+  - Gate tool execution behind user approval via ToolApprovalHook
 """
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Set
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,7 @@ from sqlalchemy.orm import selectinload
 
 from api.db_models import AgentModel, ToolModel, MCPModel
 from .mcp_manager import MCPManager
+from .hooks import ToolApprovalHook
 from .exceptions import MCPConnectionError, CoreException
 
 logger = logging.getLogger(__name__)
@@ -31,10 +33,13 @@ class AgentInvocationResult:
         response: The final text-only response from the agent.
         messages: The complete conversation including tool_use / tool_result blocks.
         tools_requiring_approval: Set of tool names that require user approval.
+        cancelled_tool_use_ids: Set of toolUseId values that were blocked
+            because they require approval.  Empty when no tools were gated.
     """
     response: str
     messages: List[Dict[str, Any]] = field(default_factory=list)
     tools_requiring_approval: set = field(default_factory=set)
+    cancelled_tool_use_ids: Set[str] = field(default_factory=set)
 
 
 class AgentExecutionError(CoreException):
@@ -49,7 +54,7 @@ class AgentExecutor:
     async def invoke(
         db: AsyncSession,
         agent_id: uuid.UUID,
-        prompt: str,
+        prompt: Optional[str],
         history: List[Dict[str, Any]] | None = None,
     ) -> AgentInvocationResult:
         """Run a prompt against an agent, using its linked MCP tools.
@@ -61,10 +66,19 @@ class AgentExecutor:
           4. Start all clients, create a Strands Agent, run the prompt.
           5. Stop all clients and return the response.
 
+        Tools that require approval are **not** executed.  Instead, the hook
+        cancels their calls and returns a placeholder error result to the
+        model.  When any tools are cancelled, the messages returned are
+        truncated so that trailing assistant turns (which were generated
+        based on incomplete/cancelled results) are removed.
+
         Args:
             db: Async database session.
             agent_id: UUID of the agent to invoke.
-            prompt: User prompt to send to the agent.
+            prompt: User prompt to send to the agent.  Pass ``None`` when
+                resuming from an approval (the conversation already ends
+                with a tool-result message and the model should continue
+                from there).
             history: Optional list of prior conversation messages to pre-load
                 into the agent.  Each dict must have ``role`` and ``content``
                 keys matching the Strands message format.
@@ -150,11 +164,21 @@ class AgentExecutor:
         history_len = len(prior_messages)
 
         try:
+            # Install the approval hook so that tools requiring approval are
+            # cancelled before execution (the model still receives a
+            # tool_result with status "error").
+            approval_hook: Optional[ToolApprovalHook] = None
+            hooks = []
+            if tools_requiring_approval:
+                approval_hook = ToolApprovalHook(tools_requiring_approval)
+                hooks.append(approval_hook)
+
             agent = Agent(
                 model=agent_model.model,
                 tools=clients,
                 system_prompt=agent_model.system_prompt or None,
                 messages=prior_messages if prior_messages else None,
+                hooks=hooks if hooks else None,
             )
 
             logger.info(
@@ -176,10 +200,26 @@ class AgentExecutor:
             # Return only the NEW messages (delta) — skip the pre-loaded history
             new_messages = all_messages[history_len:]
 
+            # Determine which toolUseIds were cancelled by the approval hook
+            cancelled_ids: Set[str] = set()
+            if approval_hook:
+                cancelled_ids = approval_hook.cancelled_tool_use_ids
+
+            # When tools were cancelled, the model's follow-up response is
+            # based on incomplete data (it saw "tool cancelled" errors).
+            # Truncate trailing assistant messages so the stored conversation
+            # ends at the tool-result turn.  When the user later approves,
+            # the agent is re-invoked and produces a fresh response.
+            if cancelled_ids:
+                new_messages = AgentExecutor._truncate_after_cancelled_results(
+                    new_messages, cancelled_ids,
+                )
+
             return AgentInvocationResult(
                 response=str(result),
                 messages=new_messages,
                 tools_requiring_approval=tools_requiring_approval,
+                cancelled_tool_use_ids=cancelled_ids,
             )
 
         except AgentExecutionError:
@@ -189,3 +229,39 @@ class AgentExecutor:
             raise AgentExecutionError(
                 f"Agent execution failed: {exc}"
             ) from exc
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _truncate_after_cancelled_results(
+        messages: List[Dict[str, Any]],
+        cancelled_ids: Set[str],
+    ) -> List[Dict[str, Any]]:
+        """Remove trailing assistant messages that follow cancelled tool results.
+
+        When a tool call is cancelled for approval, the model still generates
+        a text response (e.g. "I couldn't run the tool").  That response is
+        stale — we don't want to persist it.  This helper finds the last
+        ``user`` message containing a cancelled ``toolResult`` and strips
+        any assistant messages that come after it.
+        """
+        # Find the index of the last user message containing a cancelled
+        # tool result.
+        last_cancelled_idx = -1
+        for idx, msg in enumerate(messages):
+            if msg.get("role") != "user":
+                continue
+            for block in msg.get("content", []):
+                tr = block.get("toolResult") if isinstance(block, dict) else None
+                if tr and tr.get("toolUseId") in cancelled_ids:
+                    last_cancelled_idx = idx
+                    break  # found one in this message — that's enough
+
+        if last_cancelled_idx == -1:
+            return messages  # nothing to truncate
+
+        # Keep everything up to and including the message with the cancelled
+        # result, dropping any subsequent assistant turns.
+        return messages[: last_cancelled_idx + 1]
