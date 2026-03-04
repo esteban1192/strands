@@ -16,7 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from api.db_models import AgentModel, AgentToolModel, ToolModel, MCPModel
+from api.db_models import AgentModel, ToolModel, MCPModel
 from .mcp_manager import MCPManager
 from .exceptions import MCPConnectionError, CoreException
 
@@ -143,9 +143,11 @@ class AgentExecutor:
 
             # Extract the full conversation messages (user + assistant turns
             # including tool_use / tool_result blocks)
+            raw_messages = getattr(agent, "messages", [])
+
             messages = [
                 {"role": m.get("role", "unknown"), "content": m.get("content", [])}
-                for m in getattr(agent, "messages", [])
+                for m in raw_messages
             ]
 
             return AgentInvocationResult(
