@@ -225,9 +225,11 @@ class MCPManager:
         except (MCPConnectionError, MCPSyncError):
             raise
         except Exception as exc:
-            logger.exception("Tool sync failed for MCP '%s'", mcp.name)
+            await db.rollback()
+            mcp_name = getattr(mcp, 'name', str(mcp_id))
+            logger.exception("Tool sync failed for MCP '%s'", mcp_name)
             raise MCPSyncError(
-                f"Failed to sync tools from MCP '{mcp.name}': {exc}"
+                f"Failed to sync tools from MCP '{mcp_name}': {exc}"
             ) from exc
         finally:
             # Always clean up the connection
@@ -251,16 +253,15 @@ class MCPManager:
         from sqlalchemy import select
         from api.db_models import ToolModel
 
-        stmt = select(ToolModel).where(
-            ToolModel.name == name,
-            ToolModel.mcp_id == mcp_id,
-        )
+        # Look up by name only — the DB has a unique constraint on name
+        stmt = select(ToolModel).where(ToolModel.name == name)
         result = await db.execute(stmt)
         existing = result.scalar_one_or_none()
 
         if existing:
             existing.description = description
             existing.is_active = True
+            existing.mcp_id = mcp_id
             await db.commit()
             await db.refresh(existing)
             return ToolResponse(
