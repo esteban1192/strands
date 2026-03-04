@@ -26,5 +26,6 @@
     <include file="changelogs/012-update-sample-agent-models.xml"/>
     <include file="changelogs/013-add-mcp-transport-fields.xml"/>
     <include file="changelogs/014-add-mcp-stdio-fields.xml"/>
+    <include file="changelogs/015-add-system-prompt-to-agents.xml"/>
 
 </databaseChangeLog>

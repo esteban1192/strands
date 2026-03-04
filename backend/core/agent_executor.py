@@ -123,10 +123,14 @@ class AgentExecutor:
         # 4. Create Strands Agent and run the prompt
         # The Agent handles MCPClient lifecycle (start/stop) internally.
         try:
-            agent = Agent(
+            agent_kwargs = dict(
                 model=agent_model.model,
                 tools=clients,
             )
+            if agent_model.system_prompt:
+                agent_kwargs["system_prompt"] = agent_model.system_prompt
+
+            agent = Agent(**agent_kwargs)
 
             logger.info(
                 "Invoking agent '%s' (model=%s) with %d MCP(s)",

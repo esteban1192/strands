@@ -21,6 +21,7 @@ class AgentModel(Base):
     name: Mapped[str] = Column(String(255), nullable=False, unique=True)
     description: Mapped[Optional[str]] = Column(Text, nullable=True)
     model: Mapped[str] = Column(String(255), nullable=False)
+    system_prompt: Mapped[Optional[str]] = Column(Text, nullable=True)
     status: Mapped[str] = Column(String(50), nullable=False, default="active")
     created_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

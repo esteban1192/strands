@@ -3,6 +3,7 @@ export interface Agent {
   name: string;
   description: string | null;
   model: string;
+  system_prompt: string | null;
   status: AgentStatus;
   created_at: string;
   updated_at: string;
@@ -22,6 +23,7 @@ export interface AgentCreateRequest {
   name: string;
   description?: string | null;
   model: string;
+  system_prompt?: string | null;
   status?: AgentStatus;
 }
 
@@ -29,6 +31,7 @@ export interface AgentUpdateRequest {
   name?: string;
   description?: string | null;
   model?: string;
+  system_prompt?: string | null;
   status?: AgentStatus;
 }
 

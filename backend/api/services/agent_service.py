@@ -28,6 +28,7 @@ class AgentService:
                 name=agent.name,
                 description=agent.description,
                 model=agent.model,
+                system_prompt=agent.system_prompt,
                 status=agent.status,
                 tools_count=len(agent.agent_tools),
                 created_at=agent.created_at,
@@ -51,6 +52,7 @@ class AgentService:
             name=agent.name,
             description=agent.description,
             model=agent.model,
+            system_prompt=agent.system_prompt,
             status=agent.status,
             tools_count=len(agent.agent_tools),
             created_at=agent.created_at,
@@ -64,6 +66,7 @@ class AgentService:
             name=agent_data.name,
             description=agent_data.description,
             model=agent_data.model,
+            system_prompt=agent_data.system_prompt,
             status=agent_data.status
         )
         db.add(agent)
@@ -75,6 +78,7 @@ class AgentService:
             name=agent.name,
             description=agent.description,
             model=agent.model,
+            system_prompt=agent.system_prompt,
             status=agent.status,
             tools_count=0,
             created_at=agent.created_at,
@@ -92,6 +96,8 @@ class AgentService:
             update_data["description"] = agent_data.description
         if agent_data.model is not None:
             update_data["model"] = agent_data.model
+        if agent_data.system_prompt is not None:
+            update_data["system_prompt"] = agent_data.system_prompt
         if agent_data.status is not None:
             update_data["status"] = agent_data.status
         
