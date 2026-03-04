@@ -3,148 +3,106 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useApi } from '@/hooks';
 import { agentApi } from '@/api';
 import { LoadingSpinner, ErrorMessage } from '@/components/common';
-import type { AgentMessage } from '@/types';
+import type { AgentMessage, ContentBlock } from '@/types';
 import './AgentChat.css';
 
-interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  /** Full Strands message trace for this turn (assistant only) */
-  trace?: AgentMessage[];
+/* ------------------------------------------------------------------ */
+/*  Helpers to identify content-block shapes                          */
+/* ------------------------------------------------------------------ */
+function isTextBlock(b: ContentBlock): b is { text: string } {
+  return typeof (b as Record<string, unknown>).text === 'string';
 }
 
-/** Extract tool-call and tool-result pairs from a Strands message trace. */
-function extractToolSteps(messages: AgentMessage[]) {
-  const steps: Array<{
-    name: string;
-    input: Record<string, unknown>;
-    output: string;
-    status: string;
-  }> = [];
-
-  // Build a map of toolUseId -> tool call info
-  const callMap = new Map<string, { name: string; input: Record<string, unknown> }>();
-
-  for (const msg of messages) {
-    if (!msg.content) continue;
-    for (const block of msg.content) {
-      if (block.toolUse) {
-        callMap.set(block.toolUse.toolUseId, {
-          name: block.toolUse.name,
-          input: block.toolUse.input,
-        });
-      }
-      if (block.toolResult) {
-        const call = callMap.get(block.toolResult.toolUseId);
-        const outputParts: string[] = [];
-        for (const c of block.toolResult.content || []) {
-          if (c.text) outputParts.push(c.text);
-          if (c.json) outputParts.push(JSON.stringify(c.json, null, 2));
-        }
-        steps.push({
-          name: call?.name ?? 'unknown_tool',
-          input: call?.input ?? {},
-          output: outputParts.join('\n'),
-          status: block.toolResult.status ?? 'success',
-        });
-      }
-    }
-  }
-  return steps;
+function isToolUseBlock(b: ContentBlock): b is { toolUse: { toolUseId: string; name: string; input: unknown } } {
+  return !!(b as Record<string, unknown>).toolUse;
 }
 
-/** Extract final assistant text blocks from the last assistant message. */
-function extractFinalText(messages: AgentMessage[]): string {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (msg.role !== 'assistant') continue;
-    const texts: string[] = [];
-    for (const block of msg.content || []) {
-      if (block.text) texts.push(block.text);
-    }
-    if (texts.length > 0) return texts.join('\n');
-  }
-  return '';
+function isToolResultBlock(
+  b: ContentBlock,
+): b is { toolResult: { toolUseId: string; content: { text?: string }[]; status: 'success' | 'error' } } {
+  return !!(b as Record<string, unknown>).toolResult;
 }
 
-function ToolStep({ step }: {
-  step: { name: string; input: Record<string, unknown>; output: string; status: string };
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const inputStr = JSON.stringify(step.input, null, 2);
-  const hasLongOutput = step.output.length > 300;
+/* ------------------------------------------------------------------ */
+/*  Small sub-components for rendering each content-block type        */
+/* ------------------------------------------------------------------ */
+
+function TextContent({ text }: { text: string }) {
+  return <span className="chat-text">{text}</span>;
+}
+
+function ToolUseContent({ name, input }: { name: string; input: unknown }) {
+  const [open, setOpen] = useState(false);
+  const inputStr = typeof input === 'string' ? input : JSON.stringify(input, null, 2);
 
   return (
-    <div className={`tool-step tool-step--${step.status}`}>
-      <button
-        className="tool-step__header"
-        onClick={() => setExpanded((v) => !v)}
-        title={expanded ? 'Collapse' : 'Expand'}
-      >
-        <span className="tool-step__icon">{step.status === 'error' ? '✗' : '✓'}</span>
-        <span className="tool-step__name">{step.name}</span>
-        <span className="tool-step__toggle">{expanded ? '▾' : '▸'}</span>
+    <div className="chat-tool-use">
+      <button className="chat-tool-use__header" onClick={() => setOpen((v) => !v)}>
+        <span className="chat-tool-use__icon">&#9881;</span>
+        <span className="chat-tool-use__name">{name}</span>
+        <span className="chat-tool-use__toggle">{open ? '▾' : '▸'}</span>
       </button>
-
-      {expanded && (
-        <div className="tool-step__body">
-          <div className="tool-step__section">
-            <span className="tool-step__label">Input</span>
-            <pre className="tool-step__code">{inputStr}</pre>
-          </div>
-          <div className="tool-step__section">
-            <span className="tool-step__label">Output</span>
-            <pre className="tool-step__code">{step.output || '(empty)'}</pre>
-          </div>
-        </div>
-      )}
-
-      {!expanded && step.output && (
-        <div className="tool-step__preview">
-          {hasLongOutput ? step.output.slice(0, 200) + '…' : step.output}
-        </div>
-      )}
+      {open && <pre className="chat-tool-use__input">{inputStr}</pre>}
     </div>
   );
 }
 
-function AssistantMessage({
-  msg,
-  agentName,
-}: {
-  msg: ChatMessage;
-  agentName: string;
-}) {
-  const trace = msg.trace ?? [];
-  const toolSteps = extractToolSteps(trace);
-  const finalText = trace.length > 0 ? extractFinalText(trace) : msg.content;
+function ToolResultContent({ content, status }: { content: { text?: string }[]; status: string }) {
+  const [open, setOpen] = useState(false);
+  const text = content
+    .map((c) => c.text ?? '')
+    .filter(Boolean)
+    .join('\n');
+
+  if (!text) return null;
+
+  // Show a short preview (first 120 chars) when collapsed
+  const preview = text.length > 120 ? text.slice(0, 120) + '…' : text;
 
   return (
-    <div className="chat-message chat-message--assistant">
-      <span className="chat-message__role">{agentName}</span>
-
-      {toolSteps.length > 0 && (
-        <div className="chat-message__tools">
-          <span className="chat-message__tools-label">
-            Tool calls ({toolSteps.length})
-          </span>
-          {toolSteps.map((step, i) => (
-            <ToolStep key={i} step={step} />
-          ))}
-        </div>
-      )}
-
-      <div className="chat-message__bubble">{finalText}</div>
+    <div className={`chat-tool-result chat-tool-result--${status}`}>
+      <button className="chat-tool-result__header" onClick={() => setOpen((v) => !v)}>
+        <span className="chat-tool-result__status">{status === 'success' ? '✓' : '✗'}</span>
+        <span className="chat-tool-result__label">Tool result</span>
+        <span className="chat-tool-result__toggle">{open ? '▾' : '▸'}</span>
+      </button>
+      <pre className="chat-tool-result__body">{open ? text : preview}</pre>
     </div>
   );
 }
 
+/* ------------------------------------------------------------------ */
+/*  Render a single agent message (may contain many content blocks)   */
+/* ------------------------------------------------------------------ */
+function MessageBubble({ msg, agentName }: { msg: AgentMessage; agentName: string }) {
+  return (
+    <div className={`chat-message chat-message--${msg.role}`}>
+      <span className="chat-message__role">{msg.role === 'user' ? 'You' : agentName}</span>
+      <div className="chat-message__bubble">
+        {msg.content.map((block, i) => {
+          if (isTextBlock(block)) return <TextContent key={i} text={block.text} />;
+          if (isToolUseBlock(block))
+            return <ToolUseContent key={i} name={block.toolUse.name} input={block.toolUse.input} />;
+          if (isToolResultBlock(block))
+            return (
+              <ToolResultContent key={i} content={block.toolResult.content} status={block.toolResult.status} />
+            );
+          return null;
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main Chat component                                               */
+/* ------------------------------------------------------------------ */
 export default function AgentChat() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data: agent, loading, error: loadError } = useApi(() => agentApi.getById(id!), [id]);
 
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -176,19 +134,22 @@ export default function AgentChat() {
     setError(null);
     if (inputRef.current) inputRef.current.style.height = 'auto';
 
-    const userMessage: ChatMessage = { role: 'user', content: prompt };
+    // Optimistic user bubble
+    const userMessage: AgentMessage = { role: 'user', content: [{ text: prompt }] };
     setMessages((prev) => [...prev, userMessage]);
     setSending(true);
 
     try {
       const result = await agentApi.invoke(id, prompt);
-      const traceMessages: AgentMessage[] = result.messages ?? [];
-      const assistantMessage: ChatMessage = {
-        role: 'assistant',
-        content: result.response,
-        trace: traceMessages,
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
+
+      // Replace the whole conversation with the server's authoritative list
+      // which includes every tool_use / tool_result block.
+      if (result.messages && result.messages.length > 0) {
+        setMessages(result.messages);
+      } else {
+        // Fallback: just append a plain text assistant bubble
+        setMessages((prev) => [...prev, { role: 'assistant', content: [{ text: result.response }] }]);
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to get response';
       setError(message);
@@ -228,16 +189,9 @@ export default function AgentChat() {
           </div>
         )}
 
-        {messages.map((msg, i) =>
-          msg.role === 'user' ? (
-            <div key={i} className="chat-message chat-message--user">
-              <span className="chat-message__role">You</span>
-              <div className="chat-message__bubble">{msg.content}</div>
-            </div>
-          ) : (
-            <AssistantMessage key={i} msg={msg} agentName={agent.name} />
-          ),
-        )}
+        {messages.map((msg, i) => (
+          <MessageBubble key={i} msg={msg} agentName={agent.name} />
+        ))}
 
         {sending && (
           <div className="chat-thinking">

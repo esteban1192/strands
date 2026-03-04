@@ -3,7 +3,6 @@ export interface Agent {
   name: string;
   description: string | null;
   model: string;
-  system_prompt: string | null;
   status: AgentStatus;
   created_at: string;
   updated_at: string;
@@ -23,7 +22,6 @@ export interface AgentCreateRequest {
   name: string;
   description?: string | null;
   model: string;
-  system_prompt?: string | null;
   status?: AgentStatus;
 }
 
@@ -31,7 +29,6 @@ export interface AgentUpdateRequest {
   name?: string;
   description?: string | null;
   model?: string;
-  system_prompt?: string | null;
   status?: AgentStatus;
 }
 
@@ -47,7 +44,37 @@ export interface AgentInvokeRequest {
   prompt: string;
 }
 
+/* ---- Content blocks inside a conversation message ---- */
+
+export interface ToolUseBlock {
+  toolUse: {
+    toolUseId: string;
+    name: string;
+    input: unknown;
+  };
+}
+
+export interface ToolResultBlock {
+  toolResult: {
+    toolUseId: string;
+    content: { text?: string }[];
+    status: 'success' | 'error';
+  };
+}
+
+export interface TextBlock {
+  text: string;
+}
+
+export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | Record<string, unknown>;
+
+export interface AgentMessage {
+  role: 'user' | 'assistant';
+  content: ContentBlock[];
+}
+
 export interface AgentInvokeResponse {
   agent_id: string;
   response: string;
+  messages: AgentMessage[];
 }

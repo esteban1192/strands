@@ -10,7 +10,7 @@ Responsibilities:
 import logging
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, List
+from typing import Any, Dict, List
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,16 +23,21 @@ from .exceptions import MCPConnectionError, CoreException
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class AgentInvocationResult:
+    """Structured result from an agent invocation.
+
+    Attributes:
+        response: The final text-only response from the agent.
+        messages: The complete conversation including tool_use / tool_result blocks.
+    """
+    response: str
+    messages: List[Dict[str, Any]] = field(default_factory=list)
+
+
 class AgentExecutionError(CoreException):
     """Raised when agent execution fails."""
     pass
-
-
-@dataclass
-class AgentInvocationResult:
-    """Holds the agent text response and the full message trace."""
-    response: str
-    messages: List[dict[str, Any]] = field(default_factory=list)
 
 
 class AgentExecutor:
@@ -55,7 +60,7 @@ class AgentExecutor:
             prompt: User prompt to send to the agent.
 
         Returns:
-            AgentInvocationResult containing the text response and full message trace.
+            AgentInvocationResult with the text response and full message list.
 
         Raises:
             AgentExecutionError: if something goes wrong.
@@ -123,28 +128,29 @@ class AgentExecutor:
         # 4. Create Strands Agent and run the prompt
         # The Agent handles MCPClient lifecycle (start/stop) internally.
         try:
-            agent_kwargs = dict(
+            agent = Agent(
                 model=agent_model.model,
                 tools=clients,
+                system_prompt=agent_model.system_prompt or None,
             )
-            if agent_model.system_prompt:
-                agent_kwargs["system_prompt"] = agent_model.system_prompt
-
-            agent = Agent(**agent_kwargs)
 
             logger.info(
                 "Invoking agent '%s' (model=%s) with %d MCP(s)",
                 agent_model.name, agent_model.model, len(clients),
             )
 
-            response = agent(prompt)
+            result = agent(prompt)
 
-            # Extract full message trace from the agent
-            raw_messages = list(agent.messages) if hasattr(agent, 'messages') else []
+            # Extract the full conversation messages (user + assistant turns
+            # including tool_use / tool_result blocks)
+            messages = [
+                {"role": m.get("role", "unknown"), "content": m.get("content", [])}
+                for m in getattr(agent, "messages", [])
+            ]
 
             return AgentInvocationResult(
-                response=str(response),
-                messages=raw_messages,
+                response=str(result),
+                messages=messages,
             )
 
         except AgentExecutionError:

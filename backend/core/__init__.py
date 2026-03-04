@@ -22,6 +22,7 @@ __all__ = [
     "MCPManager",
     "AgentExecutor",
     "AgentExecutionError",
+    "AgentInvocationResult",
     "CoreException",
     "MCPConnectionError",
     "MCPSyncError",
