@@ -103,22 +103,25 @@ services:
     depends_on:
       - api
 
-  # MCP Memory Server for testing (stdio→streamable HTTP via supergateway)
-  mcp-memory:
-    image: node:20-slim
-    container_name: strands-mcp-memory
+  # MCP Filesystem Server (stdio→streamable HTTP via supergateway)
+  mcp-filesystem:
+    build:
+      context: ./mcp-filesystem
+      dockerfile: Dockerfile
+    container_name: strands-mcp-filesystem
     restart: unless-stopped
     command: >
-      npx -y supergateway
-      --stdio "npx -y @modelcontextprotocol/server-memory"
+      --stdio "mcp-filesystem-server /workspace"
       --port 8000
       --outputTransport streamableHttp
       --streamableHttpPath /mcp
       --healthEndpoint /health
+    volumes:
+      - ./:/workspace:ro
     networks:
       - strands-network
     ports:
-      - "8001:8000"
+      - "8002:8000"
 
 volumes:
   postgres_data:
