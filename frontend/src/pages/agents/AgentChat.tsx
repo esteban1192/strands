@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useApi } from '@/hooks';
 import { agentApi, chatApi, agentSubAgentApi } from '@/api';
-import { LoadingSpinner, ErrorMessage } from '@/components/common';
+import { LoadingSpinner, ErrorMessage, MarkdownRenderer } from '@/components/common';
 import type { ContentBlock, ChatMessage, Chat, AgentSubAgent } from '@/types';
 import './AgentChat.css';
 
@@ -27,8 +27,11 @@ function isToolResultBlock(
 /*  Small sub-components for rendering each content-block type        */
 /* ------------------------------------------------------------------ */
 
-function TextContent({ text }: { text: string }) {
-  return <span className="chat-text">{text}</span>;
+function TextContent({ text, isUser }: { text: string; isUser?: boolean }) {
+  if (isUser) {
+    return <span className="chat-text">{text}</span>;
+  }
+  return <MarkdownRenderer content={text} />;
 }
 
 function ToolUseContent({
@@ -157,7 +160,7 @@ function MessageBubble({
         {isSubAgentMsg && <span className="chat-message__sub-badge">sub-agent</span>}
       </span>
       <div className="chat-message__bubble">
-        {isTextBlock(block) && <TextContent text={block.text} />}
+        {isTextBlock(block) && <TextContent text={block.text} isUser={displayRole === 'user'} />}
         {isToolUseBlock(block) && (
           <ToolUseContent
             name={block.toolUse.name}

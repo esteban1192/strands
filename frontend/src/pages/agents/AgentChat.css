@@ -98,8 +98,11 @@
   border-radius: 12px;
   font-size: 0.9rem;
   line-height: 1.55;
-  white-space: pre-wrap;
   word-break: break-word;
+}
+
+.chat-message--user .chat-message__bubble {
+  white-space: pre-wrap;
 }
 
 .chat-message--user .chat-message__bubble {
