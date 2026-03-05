@@ -8,7 +8,7 @@ import os
 from contextlib import asynccontextmanager
 
 from api.models import HealthResponse
-from api.resources import agent, tool, mcp, tool_parameters, chat
+from api.resources import agent, tool, mcp, tool_parameters, chat, agent_sub_agents
 from api.database import engine
 
 
@@ -52,6 +52,7 @@ app.include_router(tool.router)
 app.include_router(mcp.router)
 app.include_router(tool_parameters.router)
 app.include_router(chat.router)
+app.include_router(agent_sub_agents.router)
 
 # Basic health endpoints
 @app.get("/", response_model=HealthResponse)

@@ -40,6 +40,7 @@ class ChatMessageResponse(BaseModel):
     """Single message within a chat (one content block per row)."""
     id: uuid.UUID
     chat_id: uuid.UUID
+    agent_id: Optional[uuid.UUID] = None
     role: str
     message_type: str
     content: Dict[str, Any]

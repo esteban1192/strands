@@ -29,6 +29,7 @@ export interface ChatToolResult {
 export interface ChatMessage {
   id: string;
   chat_id: string;
+  agent_id: string | null;
   role: 'user' | 'assistant';
   message_type: ChatMessageType;
   content: import('./agent').ContentBlock;

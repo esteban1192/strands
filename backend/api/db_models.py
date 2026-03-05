@@ -28,6 +28,14 @@ class AgentModel(Base):
 
     # Relationships
     agent_tools: Mapped[List["AgentToolModel"]] = relationship("AgentToolModel", back_populates="agent", cascade="all, delete-orphan")
+    sub_agents: Mapped[List["AgentSubAgentModel"]] = relationship(
+        "AgentSubAgentModel", foreign_keys="AgentSubAgentModel.parent_agent_id",
+        back_populates="parent_agent", cascade="all, delete-orphan",
+    )
+    parent_agents: Mapped[List["AgentSubAgentModel"]] = relationship(
+        "AgentSubAgentModel", foreign_keys="AgentSubAgentModel.child_agent_id",
+        back_populates="child_agent", cascade="all, delete-orphan",
+    )
     chats: Mapped[List["ChatModel"]] = relationship("ChatModel", back_populates="agent", cascade="all, delete-orphan")
 
 
@@ -107,6 +115,22 @@ class AgentToolModel(Base):
     tool: Mapped["ToolModel"] = relationship("ToolModel", back_populates="agent_tools")
 
 
+class AgentSubAgentModel(Base):
+    """SQLAlchemy model for Agent-to-Agent (sub-agent) relationship table"""
+    __tablename__ = "agent_sub_agents"
+    __table_args__ = {"schema": "strands"}
+
+    id: Mapped[UUID] = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    parent_agent_id: Mapped[UUID] = Column(UUID(as_uuid=True), ForeignKey("strands.agents.id"), nullable=False)
+    child_agent_id: Mapped[UUID] = Column(UUID(as_uuid=True), ForeignKey("strands.agents.id"), nullable=False)
+    is_enabled: Mapped[bool] = Column(Boolean, nullable=False, default=True)
+    added_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    parent_agent: Mapped["AgentModel"] = relationship("AgentModel", foreign_keys=[parent_agent_id], back_populates="sub_agents")
+    child_agent: Mapped["AgentModel"] = relationship("AgentModel", foreign_keys=[child_agent_id], back_populates="parent_agents")
+
+
 class ChatModel(Base):
     """SQLAlchemy model for Chats table"""
     __tablename__ = "chats"
@@ -137,6 +161,7 @@ class ChatMessageModel(Base):
 
     id: Mapped[UUID] = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     chat_id: Mapped[UUID] = Column(UUID(as_uuid=True), ForeignKey("strands.chats.id"), nullable=False)
+    agent_id: Mapped[Optional[UUID]] = Column(UUID(as_uuid=True), ForeignKey("strands.agents.id"), nullable=True)
     role: Mapped[str] = Column(String(50), nullable=False)
     message_type: Mapped[str] = Column(String(50), nullable=False, default="text")
     content: Mapped[dict] = Column(JSONB, nullable=False)
@@ -146,6 +171,7 @@ class ChatMessageModel(Base):
 
     # Relationships
     chat: Mapped["ChatModel"] = relationship("ChatModel", back_populates="messages")
+    agent: Mapped[Optional["AgentModel"]] = relationship("AgentModel")
     tool_call: Mapped[Optional["ChatToolCallModel"]] = relationship(
         "ChatToolCallModel", back_populates="message", uselist=False, cascade="all, delete-orphan",
     )

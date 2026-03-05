@@ -201,6 +201,7 @@ class ChatService:
         chat_id: uuid.UUID,
         messages: List[Dict[str, Any]],
         tools_requiring_approval: Optional[set[str]] = None,
+        agent_id: Optional[uuid.UUID] = None,
     ) -> List[ChatMessageResponse]:
         """Explode Strands messages into individual chat_messages rows.
 
@@ -214,6 +215,8 @@ class ChatService:
                 tool_call (and corresponding tool_result) rows should be
                 stored with ``is_approved=False``.  Everything else is
                 stored as ``is_approved=True``.
+            agent_id: Optional UUID of the agent that produced these messages.
+                Used for agent-to-agent attribution.
 
         Returns the newly-inserted messages as response models.
         """
@@ -249,6 +252,7 @@ class ChatService:
 
                 row = ChatMessageModel(
                     chat_id=chat_id,
+                    agent_id=agent_id,
                     role=role,
                     message_type=msg_type,
                     content=block,
@@ -498,6 +502,7 @@ class ChatService:
         return ChatMessageResponse(
             id=msg.id,
             chat_id=msg.chat_id,
+            agent_id=msg.agent_id,
             role=msg.role,
             message_type=msg.message_type,
             content=msg.content,

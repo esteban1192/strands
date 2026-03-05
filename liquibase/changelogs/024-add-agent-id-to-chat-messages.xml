@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="024-add-agent-id-to-chat-messages" author="system" context="all">
+        <comment>Add agent_id column to chat_messages to track which agent produced each message</comment>
+
+        <addColumn schemaName="strands" tableName="chat_messages">
+            <column name="agent_id" type="UUID">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+
+        <!-- Backfill existing rows: inherit agent_id from the parent chat -->
+        <sql>
+            UPDATE strands.chat_messages cm
+            SET agent_id = c.agent_id
+            FROM strands.chats c
+            WHERE cm.chat_id = c.id
+              AND cm.agent_id IS NULL;
+        </sql>
+
+        <addForeignKeyConstraint
+            baseTableName="chat_messages"
+            baseColumnNames="agent_id"
+            referencedTableName="agents"
+            referencedColumnNames="id"
+            constraintName="fk_chat_messages_agent_id"
+            baseTableSchemaName="strands"
+            referencedTableSchemaName="strands"
+            onDelete="SET NULL"
+            onUpdate="CASCADE"/>
+
+        <createIndex tableName="chat_messages" indexName="idx_chat_messages_agent_id"
+                     schemaName="strands">
+            <column name="agent_id"/>
+        </createIndex>
+
+        <rollback>
+            <dropIndex schemaName="strands" tableName="chat_messages" indexName="idx_chat_messages_agent_id"/>
+            <dropColumn schemaName="strands" tableName="chat_messages" columnName="agent_id"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

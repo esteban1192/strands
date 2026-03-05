@@ -50,6 +50,12 @@ from .chat_models import (
     ChatToolResultResponse
 )
 
+# Agent Sub-Agent models
+from .agent_sub_agent_models import (
+    AgentSubAgentResponse,
+    AgentSubAgentCreateRequest,
+)
+
 __all__ = [
     # Common
     "HealthResponse",
@@ -87,4 +93,8 @@ __all__ = [
     "ChatSendMessageResponse",
     "ChatToolCallResponse",
     "ChatToolResultResponse",
+
+    # Agent Sub-Agent models
+    "AgentSubAgentResponse",
+    "AgentSubAgentCreateRequest",
 ]

@@ -8,6 +8,7 @@ from .tool_service import ToolService
 from .mcp_service import MCPService
 from .tool_parameters_service import ToolParametersService
 from .chat_service import ChatService
+from .agent_sub_agent_service import AgentSubAgentService
 
 __all__ = [
     "AgentService",
@@ -15,4 +16,5 @@ __all__ = [
     "MCPService",
     "ToolParametersService",
     "ChatService",
+    "AgentSubAgentService",
 ]

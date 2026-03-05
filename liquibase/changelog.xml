@@ -34,5 +34,7 @@
     <include file="changelogs/020-create-chat-tool-results.xml"/>
     <include file="changelogs/021-add-requires-approval-to-tools.xml"/>
     <include file="changelogs/022-add-is-approved-to-chat-messages.xml"/>
+    <include file="changelogs/023-create-agent-sub-agents-table.xml"/>
+    <include file="changelogs/024-add-agent-id-to-chat-messages.xml"/>
 
 </databaseChangeLog>

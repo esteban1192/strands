@@ -1,9 +1,9 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useApi } from '@/hooks';
-import { agentApi, chatApi } from '@/api';
+import { agentApi, chatApi, agentSubAgentApi } from '@/api';
 import { LoadingSpinner, ErrorMessage } from '@/components/common';
-import type { ContentBlock, ChatMessage, Chat } from '@/types';
+import type { ContentBlock, ChatMessage, Chat, AgentSubAgent } from '@/types';
 import './AgentChat.css';
 
 /* ------------------------------------------------------------------ */
@@ -48,13 +48,19 @@ function ToolUseContent({
 }) {
   const [open, setOpen] = useState(false);
   const inputStr = typeof input === 'string' ? input : JSON.stringify(input, null, 2);
+  const isSubAgent = name.startsWith('invoke_agent_');
+  const displayLabel = isSubAgent ? 'Agent delegation' : name;
 
   return (
-    <div className={`chat-tool-use${isPending ? ' chat-tool-use--pending' : ''}`}>
+    <div className={`chat-tool-use${isPending ? ' chat-tool-use--pending' : ''}${isSubAgent ? ' chat-tool-use--sub-agent' : ''}`}>
       <button className="chat-tool-use__header" onClick={() => setOpen((v) => !v)}>
-        <span className="chat-tool-use__icon">&#9881;</span>
-        <span className="chat-tool-use__name">{name}</span>
-        {isPending && <span className="chat-tool-use__badge">Awaiting approval</span>}
+        <span className="chat-tool-use__icon">{isSubAgent ? '🤖' : '⚙'}</span>
+        <span className="chat-tool-use__name">{displayLabel}</span>
+        {isPending && (
+          <span className="chat-tool-use__badge">
+            {isSubAgent ? 'Approve delegation' : 'Awaiting approval'}
+          </span>
+        )}
         <span className="chat-tool-use__toggle">{open ? '▾' : '▸'}</span>
       </button>
       {open && <pre className="chat-tool-use__input">{inputStr}</pre>}
@@ -110,12 +116,16 @@ function ToolResultContent({ content, status }: { content: { text?: string }[]; 
 function MessageBubble({
   msg,
   agentName,
+  agentNameMap,
+  parentAgentId,
   onApprove,
   onReject,
   isProcessing,
 }: {
   msg: ChatMessage;
   agentName: string;
+  agentNameMap: Record<string, string>;
+  parentAgentId: string;
   onApprove?: (messageId: string) => void;
   onReject?: (messageId: string) => void;
   isProcessing?: boolean;
@@ -125,9 +135,18 @@ function MessageBubble({
   const displayRole = msg.message_type === 'tool_result' ? 'assistant' : msg.role;
   const isPending = msg.message_type === 'tool_call' && !msg.is_approved;
 
+  // Is this message from a sub-agent?
+  const isSubAgentMsg = msg.agent_id != null && msg.agent_id !== parentAgentId;
+  const resolvedName = displayRole === 'user'
+    ? 'You'
+    : (isSubAgentMsg && msg.agent_id ? (agentNameMap[msg.agent_id] ?? 'Sub-Agent') : agentName);
+
   return (
-    <div className={`chat-message chat-message--${displayRole}`}>
-      <span className="chat-message__role">{displayRole === 'user' ? 'You' : agentName}</span>
+    <div className={`chat-message chat-message--${displayRole}${isSubAgentMsg ? ' chat-message--sub-agent' : ''}`}>
+      <span className="chat-message__role">
+        {resolvedName}
+        {isSubAgentMsg && <span className="chat-message__sub-badge">sub-agent</span>}
+      </span>
       <div className="chat-message__bubble">
         {isTextBlock(block) && <TextContent text={block.text} />}
         {isToolUseBlock(block) && (
@@ -160,6 +179,7 @@ export default function AgentChat() {
   const [chatId, setChatId] = useState<string | null>(searchParams.get('chatId'));
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [chatList, setChatList] = useState<Chat[]>([]);
+  const [subAgents, setSubAgents] = useState<AgentSubAgent[]>([]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -182,6 +202,18 @@ export default function AgentChat() {
     if (!id) return;
     chatApi.listByAgent(id).then(setChatList).catch(() => {});
   }, [id, chatId]);
+
+  // Load sub-agents so we can show their names on delegated messages
+  useEffect(() => {
+    if (!id) return;
+    agentSubAgentApi.list(id).then(setSubAgents).catch(() => {});
+  }, [id]);
+
+  // Build a mapping: agent_id → agent_name for quick lookup
+  const agentNameMap: Record<string, string> = {};
+  for (const sa of subAgents) {
+    agentNameMap[sa.child_agent_id] = sa.child_agent_name;
+  }
 
   // If a chatId is present (from URL or state), load its messages
   useEffect(() => {
@@ -219,6 +251,7 @@ export default function AgentChat() {
     const optimisticMsg: ChatMessage = {
       id: crypto.randomUUID(),
       chat_id: chatId ?? '',
+      agent_id: null,
       role: 'user',
       message_type: 'text',
       content: { text: prompt },
@@ -380,6 +413,8 @@ export default function AgentChat() {
                 key={msg.id}
                 msg={msg}
                 agentName={agent.name}
+                agentNameMap={agentNameMap}
+                parentAgentId={agent.id}
                 onApprove={handleApproveToolCall}
                 onReject={handleRejectToolCall}
                 isProcessing={processingApproval === msg.id}

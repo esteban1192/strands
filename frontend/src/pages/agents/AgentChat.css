@@ -524,3 +524,32 @@
 .chat-sidebar__delete-btn:hover {
   color: var(--color-danger, #ef4444);
 }
+
+/* ===== Sub-Agent Message Attribution ===== */
+.chat-message--sub-agent {
+  margin-left: 1.25rem;
+  border-left: 3px solid var(--color-primary);
+  padding-left: 0.75rem;
+}
+
+.chat-message__sub-badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+  padding: 0.05rem 0.35rem;
+  border-radius: 4px;
+  margin-left: 0.4rem;
+}
+
+/* ===== Sub-Agent Tool Use Theming ===== */
+.chat-tool-use--sub-agent .chat-tool-use__header {
+  border-color: var(--color-primary);
+}
+
+.chat-tool-use--sub-agent .chat-tool-use__badge {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}

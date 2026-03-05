@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="023-create-agent-sub-agents-table" author="system" context="all">
+        <comment>Create agent_sub_agents many-to-many relationship table for agent-to-agent delegation</comment>
+
+        <createTable tableName="agent_sub_agents" schemaName="strands">
+            <column name="id" type="UUID" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="parent_agent_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="child_agent_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_enabled" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="added_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <!-- Prevent an agent from being its own sub-agent -->
+        <sql>
+            ALTER TABLE strands.agent_sub_agents
+            ADD CONSTRAINT ck_agent_sub_agents_no_self_ref
+            CHECK (parent_agent_id != child_agent_id);
+        </sql>
+
+        <addUniqueConstraint
+            tableName="agent_sub_agents"
+            columnNames="parent_agent_id, child_agent_id"
+            constraintName="uk_agent_sub_agents_parent_child"
+            schemaName="strands"/>
+
+        <rollback>
+            DROP TABLE IF EXISTS strands.agent_sub_agents;
+        </rollback>
+    </changeSet>
+
+    <changeSet id="023-add-agent-sub-agents-foreign-keys" author="system" context="all">
+        <comment>Add foreign key constraints for agent_sub_agents relationship table</comment>
+
+        <addForeignKeyConstraint
+            baseTableName="agent_sub_agents"
+            baseColumnNames="parent_agent_id"
+            referencedTableName="agents"
+            referencedColumnNames="id"
+            constraintName="fk_agent_sub_agents_parent_id"
+            baseTableSchemaName="strands"
+            referencedTableSchemaName="strands"
+            onDelete="CASCADE"
+            onUpdate="CASCADE"/>
+
+        <addForeignKeyConstraint
+            baseTableName="agent_sub_agents"
+            baseColumnNames="child_agent_id"
+            referencedTableName="agents"
+            referencedColumnNames="id"
+            constraintName="fk_agent_sub_agents_child_id"
+            baseTableSchemaName="strands"
+            referencedTableSchemaName="strands"
+            onDelete="CASCADE"
+            onUpdate="CASCADE"/>
+
+        <createIndex tableName="agent_sub_agents" indexName="idx_agent_sub_agents_parent"
+                     schemaName="strands">
+            <column name="parent_agent_id"/>
+        </createIndex>
+
+        <createIndex tableName="agent_sub_agents" indexName="idx_agent_sub_agents_child"
+                     schemaName="strands">
+            <column name="child_agent_id"/>
+        </createIndex>
+
+        <rollback>
+            ALTER TABLE strands.agent_sub_agents DROP CONSTRAINT IF EXISTS fk_agent_sub_agents_parent_id;
+            ALTER TABLE strands.agent_sub_agents DROP CONSTRAINT IF EXISTS fk_agent_sub_agents_child_id;
+            DROP INDEX IF EXISTS strands.idx_agent_sub_agents_parent;
+            DROP INDEX IF EXISTS strands.idx_agent_sub_agents_child;
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

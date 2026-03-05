@@ -4,6 +4,7 @@ import { agentApi } from '@/api';
 import { LoadingSpinner, ErrorMessage } from '@/components/common';
 import type { AgentCreateRequest, AgentStatus } from '@/types';
 import ToolSelector from './ToolSelector';
+import SubAgentSelector from './SubAgentSelector';
 import '../shared/FormPage.css';
 
 const STATUS_OPTIONS: AgentStatus[] = ['active', 'inactive', 'paused'];
@@ -114,6 +115,8 @@ export default function AgentForm() {
         </div>
 
         {isEdit && id && <ToolSelector agentId={id} />}
+
+        {isEdit && id && <SubAgentSelector agentId={id} />}
 
         <div className="form-actions">
           <button type="button" className="btn btn-secondary" onClick={() => navigate('/agents')}>

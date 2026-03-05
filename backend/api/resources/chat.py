@@ -17,7 +17,7 @@ from api.models import (
     ChatMessageResponse,
 )
 from api.services import ChatService
-from core.agent_executor import AgentExecutor, AgentExecutionError
+from core.agent_executor import AgentExecutor, AgentExecutionError, SUB_AGENT_TOOL_PREFIX
 from core.exceptions import MCPConnectionError
 from core.mcp_manager import MCPManager
 
@@ -88,6 +88,7 @@ async def create_chat(
     stored = await ChatService.add_messages(
         db, chat.id, result.messages,
         tools_requiring_approval=result.tools_requiring_approval,
+        agent_id=agent_id,
     )
     await ChatService.touch_updated_at(db, chat.id)
 
@@ -134,6 +135,7 @@ async def send_message(
     stored = await ChatService.add_messages(
         db, chat_id, result.messages,
         tools_requiring_approval=result.tools_requiring_approval,
+        agent_id=agent_id,
     )
     await ChatService.touch_updated_at(db, chat_id)
 
@@ -163,12 +165,22 @@ async def approve_tool_call(
 ):
     """Approve a pending tool call, execute it via MCP, and resume the agent.
 
-    Flow:
+    For regular tools the flow is:
       1. Mark the tool_call message as approved.
       2. Execute the real tool call through the MCP server.
       3. Replace the placeholder tool_result with the real result.
       4. If no more pending tool calls remain, re-invoke the agent with the
          corrected history so it can continue.
+
+    For **sub-agent** tool calls (tool name starts with ``invoke_agent_``):
+      1. Mark the tool_call message as approved.
+      2. Extract the sub-agent prompt from the tool call input.
+      3. Invoke the child agent via ``AgentExecutor.invoke``.
+      4. Persist the child agent's messages (attributed to the child).
+      5. Use the child's text response as the tool result for the parent.
+      6. If the child itself has pending approvals, stop — user must
+         resolve those first before the parent can resume.
+      7. Otherwise, if no more pending calls remain, resume the parent.
     """
     chat = await ChatService.get_chat(db, chat_id)
     if not chat or chat.agent_id != agent_id:
@@ -178,7 +190,6 @@ async def approve_tool_call(
     if not approved:
         raise HTTPException(status_code=404, detail="Tool call message not found or already approved")
 
-    # Execute the real tool call
     tool_name = approved.tool_call.tool_name if approved.tool_call else None
     tool_input = approved.tool_call.input if approved.tool_call else {}
     tool_use_id = approved.tool_call.tool_use_id if approved.tool_call else None
@@ -186,25 +197,86 @@ async def approve_tool_call(
     if not tool_name:
         raise HTTPException(status_code=400, detail="No tool call data found")
 
-    # Execute tool via MCP and get real result
-    try:
-        real_result = await MCPManager.execute_tool(db, agent_id, tool_name, tool_input or {})
-    except Exception as exc:
-        logger.error("Tool execution failed for '%s': %s", tool_name, exc)
-        real_result = {"error": str(exc)}
+    is_sub_agent = AgentExecutor.is_sub_agent_tool(tool_name)
 
-    # Update the companion tool_result row with the real result
-    await ChatService.update_tool_result(
-        db, chat_id, tool_use_id, real_result,
-    )
+    if is_sub_agent:
+        # ---- Sub-agent invocation path ----
+        child_prompt = (tool_input or {}).get("prompt", "")
+        if not child_prompt:
+            raise HTTPException(status_code=400, detail="Sub-agent tool call missing 'prompt' input")
 
-    # Only re-invoke the agent when ALL pending tool calls have been resolved.
-    # If other tool calls are still awaiting approval, return the current
-    # messages without invoking the model.
+        # Resolve child agent ID from the parent's sub-agent map.
+        # We re-derive the map from the DB rather than caching it, so the
+        # approval is always fresh.
+        from api.services import AgentSubAgentService
+        child_agents = await AgentSubAgentService.get_enabled_sub_agents(db, agent_id)
+        child_agent_id = None
+        for child in child_agents:
+            if AgentExecutor.sub_agent_tool_name(child.name) == tool_name:
+                child_agent_id = child.id
+                break
+
+        if child_agent_id is None:
+            raise HTTPException(status_code=404, detail=f"Sub-agent for tool '{tool_name}' not found")
+
+        # Invoke the child agent
+        try:
+            child_result = await AgentExecutor.invoke(db, child_agent_id, child_prompt)
+        except AgentExecutionError as e:
+            # Treat child failure as an error tool_result for the parent
+            await ChatService.update_tool_result(db, chat_id, tool_use_id, {"error": str(e)})
+            child_result = None
+        except MCPConnectionError as e:
+            await ChatService.update_tool_result(db, chat_id, tool_use_id, {"error": e.message})
+            child_result = None
+
+        if child_result is not None:
+            # Persist child agent's messages (attributed to child)
+            if child_result.messages:
+                await ChatService.add_messages(
+                    db, chat_id, child_result.messages,
+                    tools_requiring_approval=child_result.tools_requiring_approval,
+                    agent_id=child_agent_id,
+                )
+
+            # If the child has pending approvals, we cannot yet provide
+            # the parent with a final answer — the user must resolve them.
+            child_pending = await ChatService.get_pending_tool_calls(db, chat_id)
+            # Filter to only those attributed to the child agent
+            child_pending_for_child = [
+                p for p in child_pending if p.agent_id == child_agent_id
+            ]
+
+            if child_pending_for_child:
+                # Child has unresolved tool calls — stop here.
+                await ChatService.touch_updated_at(db, chat_id)
+                all_messages = await ChatService.get_messages(db, chat_id)
+                return ChatSendMessageResponse(
+                    chat_id=chat_id,
+                    response="",
+                    messages=all_messages,
+                )
+
+            # Child completed — use its response as the parent tool result
+            await ChatService.update_tool_result(
+                db, chat_id, tool_use_id, child_result.response,
+            )
+    else:
+        # ---- Regular MCP tool execution path ----
+        try:
+            real_result = await MCPManager.execute_tool(db, agent_id, tool_name, tool_input or {})
+        except Exception as exc:
+            logger.error("Tool execution failed for '%s': %s", tool_name, exc)
+            real_result = {"error": str(exc)}
+
+        await ChatService.update_tool_result(
+            db, chat_id, tool_use_id, real_result,
+        )
+
+    # Only re-invoke the parent agent when ALL pending tool calls are resolved.
     pending = await ChatService.get_pending_tool_calls(db, chat_id)
+    result = None
     if not pending:
-        # All resolved — let the agent continue from the tool results.
-        # Pass prompt=None so no empty user message is injected.
         history = await ChatService.get_messages_as_dicts(db, chat_id)
         try:
             result = await AgentExecutor.invoke(
@@ -215,11 +287,11 @@ async def approve_tool_call(
         except MCPConnectionError as e:
             raise HTTPException(status_code=502, detail=e.message)
 
-        # Persist new messages from the continued conversation
         if result.messages:
             await ChatService.add_messages(
                 db, chat_id, result.messages,
                 tools_requiring_approval=result.tools_requiring_approval,
+                agent_id=agent_id,
             )
 
     await ChatService.touch_updated_at(db, chat_id)
@@ -228,7 +300,7 @@ async def approve_tool_call(
 
     return ChatSendMessageResponse(
         chat_id=chat_id,
-        response=result.response if not pending else "",
+        response=result.response if result else "",
         messages=all_messages,
     )
 
@@ -280,6 +352,7 @@ async def reject_tool_call(
             await ChatService.add_messages(
                 db, chat_id, result.messages,
                 tools_requiring_approval=result.tools_requiring_approval,
+                agent_id=agent_id,
             )
 
     await ChatService.touch_updated_at(db, chat_id)
