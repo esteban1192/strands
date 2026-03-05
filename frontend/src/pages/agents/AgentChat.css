@@ -553,3 +553,14 @@
   background: var(--color-primary-light);
   color: var(--color-primary);
 }
+
+.chat-tool-use__badge--active {
+  background: var(--color-warning-light, #fef3c7);
+  color: var(--color-warning, #d97706);
+  animation: badgePulse 2s ease-in-out infinite;
+}
+
+@keyframes badgePulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.6; }
+}

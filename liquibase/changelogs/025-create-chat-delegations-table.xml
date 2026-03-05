@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="025" author="system" context="all">
+        <comment>
+            Create chat_delegations table to track the delegation chain
+            when agents invoke sub-agents.  Each row represents one active
+            (or completed) delegation session within a chat.  The
+            parent_delegation_id self-reference allows arbitrary nesting
+            (A → B → C → …).
+        </comment>
+
+        <createTable schemaName="strands" tableName="chat_delegations">
+            <column name="id" type="UUID" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="chat_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="parent_delegation_id" type="UUID">
+                <constraints nullable="true"/>
+            </column>
+            <column name="agent_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <!-- The tool_use_id from the PARENT's tool call that triggered
+                 this delegation.  NULL for the root agent. -->
+            <column name="tool_use_id" type="VARCHAR(255)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="status" type="VARCHAR(50)" defaultValue="active">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="completed_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="true"/>
+            </column>
+        </createTable>
+
+        <!-- Foreign keys -->
+        <addForeignKeyConstraint
+            baseTableSchemaName="strands" baseTableName="chat_delegations" baseColumnNames="chat_id"
+            referencedTableSchemaName="strands" referencedTableName="chats" referencedColumnNames="id"
+            constraintName="fk_chat_delegations_chat"
+            onDelete="CASCADE" onUpdate="CASCADE"/>
+
+        <addForeignKeyConstraint
+            baseTableSchemaName="strands" baseTableName="chat_delegations" baseColumnNames="parent_delegation_id"
+            referencedTableSchemaName="strands" referencedTableName="chat_delegations" referencedColumnNames="id"
+            constraintName="fk_chat_delegations_parent"
+            onDelete="CASCADE" onUpdate="CASCADE"/>
+
+        <addForeignKeyConstraint
+            baseTableSchemaName="strands" baseTableName="chat_delegations" baseColumnNames="agent_id"
+            referencedTableSchemaName="strands" referencedTableName="agents" referencedColumnNames="id"
+            constraintName="fk_chat_delegations_agent"
+            onDelete="CASCADE" onUpdate="CASCADE"/>
+
+        <!-- Indexes -->
+        <createIndex schemaName="strands" tableName="chat_delegations" indexName="idx_chat_delegations_chat_id">
+            <column name="chat_id"/>
+        </createIndex>
+        <createIndex schemaName="strands" tableName="chat_delegations" indexName="idx_chat_delegations_parent">
+            <column name="parent_delegation_id"/>
+        </createIndex>
+        <createIndex schemaName="strands" tableName="chat_delegations" indexName="idx_chat_delegations_agent_status">
+            <column name="agent_id"/>
+            <column name="status"/>
+        </createIndex>
+
+        <rollback>
+            <dropTable schemaName="strands" tableName="chat_delegations"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

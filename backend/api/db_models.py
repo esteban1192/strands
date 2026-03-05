@@ -148,6 +148,9 @@ class ChatModel(Base):
         "ChatMessageModel", back_populates="chat", cascade="all, delete-orphan",
         order_by="ChatMessageModel.ordinal",
     )
+    delegations: Mapped[List["ChatDelegationModel"]] = relationship(
+        "ChatDelegationModel", back_populates="chat", cascade="all, delete-orphan",
+    )
 
 
 class ChatMessageModel(Base):
@@ -210,3 +213,38 @@ class ChatToolResultModel(Base):
 
     # Relationships
     message: Mapped["ChatMessageModel"] = relationship("ChatMessageModel", back_populates="tool_result")
+
+
+class ChatDelegationModel(Base):
+    """Tracks a delegation session within a chat.
+
+    Each row represents one agent's involvement in a delegation chain.
+    The root agent (the chat's own agent) has ``parent_delegation_id = NULL``
+    and ``tool_use_id = NULL``.  Each sub-agent invocation creates a child
+    row pointing at its parent delegation via ``parent_delegation_id`` and
+    recording which ``tool_use_id`` in the parent triggered it.
+    """
+    __tablename__ = "chat_delegations"
+    __table_args__ = {"schema": "strands"}
+
+    id: Mapped[UUID] = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    chat_id: Mapped[UUID] = Column(UUID(as_uuid=True), ForeignKey("strands.chats.id"), nullable=False)
+    parent_delegation_id: Mapped[Optional[UUID]] = Column(
+        UUID(as_uuid=True), ForeignKey("strands.chat_delegations.id"), nullable=True,
+    )
+    agent_id: Mapped[UUID] = Column(UUID(as_uuid=True), ForeignKey("strands.agents.id"), nullable=False)
+    tool_use_id: Mapped[Optional[str]] = Column(String(255), nullable=True)
+    status: Mapped[str] = Column(String(50), nullable=False, default="active")
+    created_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at: Mapped[Optional[datetime]] = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    chat: Mapped["ChatModel"] = relationship("ChatModel", back_populates="delegations")
+    agent: Mapped["AgentModel"] = relationship("AgentModel")
+    parent_delegation: Mapped[Optional["ChatDelegationModel"]] = relationship(
+        "ChatDelegationModel", remote_side="ChatDelegationModel.id",
+        back_populates="child_delegations",
+    )
+    child_delegations: Mapped[List["ChatDelegationModel"]] = relationship(
+        "ChatDelegationModel", back_populates="parent_delegation",
+    )

@@ -51,6 +51,18 @@ class ChatMessageResponse(BaseModel):
     tool_result: Optional[ChatToolResultResponse] = None
 
 
+class ChatDelegationResponse(BaseModel):
+    """A delegation session within a chat."""
+    id: uuid.UUID
+    chat_id: uuid.UUID
+    parent_delegation_id: Optional[uuid.UUID] = None
+    agent_id: uuid.UUID
+    tool_use_id: Optional[str] = None
+    status: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+
 class ChatDetailResponse(BaseModel):
     """Chat metadata together with its messages."""
     id: uuid.UUID

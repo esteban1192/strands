@@ -21,11 +21,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func as sa_func
 from sqlalchemy.orm import selectinload
 
-from ..db_models import ChatModel, ChatMessageModel, ChatToolCallModel, ChatToolResultModel
+from ..db_models import (
+    ChatModel, ChatMessageModel, ChatToolCallModel, ChatToolResultModel,
+    ChatDelegationModel,
+)
 from ..models import (
     ChatResponse,
     ChatMessageResponse,
     ChatDetailResponse,
+    ChatDelegationResponse,
     ChatToolCallResponse,
     ChatToolResultResponse,
 )
@@ -156,11 +160,18 @@ class ChatService:
     async def get_messages_as_dicts(
         db: AsyncSession,
         chat_id: uuid.UUID,
+        agent_id: Optional[uuid.UUID] = None,
     ) -> List[Dict[str, Any]]:
         """Re-assemble individual rows into grouped Strands messages.
 
         Groups consecutive same-role rows and merges their ``content``
         blocks into a single content array per Strands message.
+
+        Args:
+            chat_id: The chat whose messages to load.
+            agent_id: When provided, only messages attributed to this
+                agent are included.  This is essential for the delegation
+                chain so that each agent sees only its own conversation.
 
         Returns a list of ``{role, content: [...]}`` dicts ready for the
         Strands ``Agent(messages=...)`` constructor.
@@ -170,6 +181,9 @@ class ChatService:
             .where(ChatMessageModel.chat_id == chat_id)
             .order_by(ChatMessageModel.ordinal)
         )
+        if agent_id is not None:
+            stmt = stmt.where(ChatMessageModel.agent_id == agent_id)
+
         result = await db.execute(stmt)
         rows = result.scalars().all()
 
@@ -389,8 +403,14 @@ class ChatService:
     async def get_pending_tool_calls(
         db: AsyncSession,
         chat_id: uuid.UUID,
+        agent_id: Optional[uuid.UUID] = None,
     ) -> List[ChatMessageResponse]:
-        """Return all unapproved tool_call messages for a chat."""
+        """Return unapproved tool_call messages for a chat.
+
+        Args:
+            agent_id: When provided, only pending calls attributed to this
+                agent are returned.
+        """
         stmt = (
             select(ChatMessageModel)
             .options(
@@ -404,6 +424,9 @@ class ChatService:
             )
             .order_by(ChatMessageModel.ordinal)
         )
+        if agent_id is not None:
+            stmt = stmt.where(ChatMessageModel.agent_id == agent_id)
+
         result = await db.execute(stmt)
         rows = result.scalars().all()
         return [ChatService._to_message_response(r) for r in rows]
@@ -511,4 +534,145 @@ class ChatService:
             created_at=msg.created_at,
             tool_call=tool_call_resp,
             tool_result=tool_result_resp,
+        )
+
+    # ------------------------------------------------------------------
+    # Delegation operations
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    async def create_delegation(
+        db: AsyncSession,
+        chat_id: uuid.UUID,
+        agent_id: uuid.UUID,
+        parent_delegation_id: Optional[uuid.UUID] = None,
+        tool_use_id: Optional[str] = None,
+    ) -> ChatDelegationResponse:
+        """Create a new delegation session.
+
+        Args:
+            chat_id: The chat this delegation belongs to.
+            agent_id: The agent that will run in this delegation.
+            parent_delegation_id: The parent delegation (None for root).
+            tool_use_id: The tool_use_id from the parent that triggered
+                this delegation (None for root).
+        """
+        deleg = ChatDelegationModel(
+            chat_id=chat_id,
+            agent_id=agent_id,
+            parent_delegation_id=parent_delegation_id,
+            tool_use_id=tool_use_id,
+            status="active",
+        )
+        db.add(deleg)
+        await db.commit()
+        await db.refresh(deleg)
+        return ChatService._to_delegation_response(deleg)
+
+    @staticmethod
+    async def complete_delegation(
+        db: AsyncSession,
+        delegation_id: uuid.UUID,
+        status: str = "completed",
+    ) -> None:
+        """Mark a delegation as completed (or failed)."""
+        stmt = select(ChatDelegationModel).where(ChatDelegationModel.id == delegation_id)
+        result = await db.execute(stmt)
+        deleg = result.scalar_one_or_none()
+        if deleg:
+            deleg.status = status
+            deleg.completed_at = sa_func.now()
+            await db.commit()
+
+    @staticmethod
+    async def get_active_delegation(
+        db: AsyncSession,
+        chat_id: uuid.UUID,
+        agent_id: uuid.UUID,
+    ) -> Optional[ChatDelegationResponse]:
+        """Find the active delegation for an agent in a chat."""
+        stmt = (
+            select(ChatDelegationModel)
+            .where(
+                ChatDelegationModel.chat_id == chat_id,
+                ChatDelegationModel.agent_id == agent_id,
+                ChatDelegationModel.status == "active",
+            )
+            .order_by(ChatDelegationModel.created_at.desc())
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        deleg = result.scalar_one_or_none()
+        if not deleg:
+            return None
+        return ChatService._to_delegation_response(deleg)
+
+    @staticmethod
+    async def get_delegation_by_id(
+        db: AsyncSession,
+        delegation_id: uuid.UUID,
+    ) -> Optional[ChatDelegationResponse]:
+        """Get a single delegation by ID."""
+        stmt = select(ChatDelegationModel).where(ChatDelegationModel.id == delegation_id)
+        result = await db.execute(stmt)
+        deleg = result.scalar_one_or_none()
+        if not deleg:
+            return None
+        return ChatService._to_delegation_response(deleg)
+
+    @staticmethod
+    async def get_root_delegation(
+        db: AsyncSession,
+        chat_id: uuid.UUID,
+    ) -> Optional[ChatDelegationResponse]:
+        """Get the root delegation (parent_delegation_id is NULL)."""
+        stmt = (
+            select(ChatDelegationModel)
+            .where(
+                ChatDelegationModel.chat_id == chat_id,
+                ChatDelegationModel.parent_delegation_id == None,
+            )
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        deleg = result.scalar_one_or_none()
+        if not deleg:
+            return None
+        return ChatService._to_delegation_response(deleg)
+
+    @staticmethod
+    async def check_delegation_cycle(
+        db: AsyncSession,
+        chat_id: uuid.UUID,
+        parent_delegation_id: uuid.UUID,
+        child_agent_id: uuid.UUID,
+    ) -> bool:
+        """Return True if adding child_agent_id would create a cycle.
+
+        Walks up the parent chain from parent_delegation_id and checks
+        if child_agent_id already appears.
+        """
+        current_id: Optional[uuid.UUID] = parent_delegation_id
+        while current_id is not None:
+            stmt = select(ChatDelegationModel).where(ChatDelegationModel.id == current_id)
+            result = await db.execute(stmt)
+            deleg = result.scalar_one_or_none()
+            if deleg is None:
+                break
+            if deleg.agent_id == child_agent_id:
+                return True
+            current_id = deleg.parent_delegation_id
+        return False
+
+    @staticmethod
+    def _to_delegation_response(deleg: ChatDelegationModel) -> ChatDelegationResponse:
+        return ChatDelegationResponse(
+            id=deleg.id,
+            chat_id=deleg.chat_id,
+            parent_delegation_id=deleg.parent_delegation_id,
+            agent_id=deleg.agent_id,
+            tool_use_id=deleg.tool_use_id,
+            status=deleg.status,
+            created_at=deleg.created_at,
+            completed_at=deleg.completed_at,
         )

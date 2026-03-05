@@ -35,6 +35,7 @@ function ToolUseContent({
   name,
   input,
   isPending,
+  isChildActive,
   onApprove,
   onReject,
   isProcessing,
@@ -42,6 +43,7 @@ function ToolUseContent({
   name: string;
   input: unknown;
   isPending?: boolean;
+  isChildActive?: boolean;
   onApprove?: () => void;
   onReject?: () => void;
   isProcessing?: boolean;
@@ -59,6 +61,11 @@ function ToolUseContent({
         {isPending && (
           <span className="chat-tool-use__badge">
             {isSubAgent ? 'Approve delegation' : 'Awaiting approval'}
+          </span>
+        )}
+        {isChildActive && !isPending && (
+          <span className="chat-tool-use__badge chat-tool-use__badge--active">
+            Sub-agent working…
           </span>
         )}
         <span className="chat-tool-use__toggle">{open ? '▾' : '▸'}</span>
@@ -118,6 +125,7 @@ function MessageBubble({
   agentName,
   agentNameMap,
   parentAgentId,
+  hasActiveChildDelegation,
   onApprove,
   onReject,
   isProcessing,
@@ -126,6 +134,7 @@ function MessageBubble({
   agentName: string;
   agentNameMap: Record<string, string>;
   parentAgentId: string;
+  hasActiveChildDelegation?: (toolName: string) => boolean;
   onApprove?: (messageId: string) => void;
   onReject?: (messageId: string) => void;
   isProcessing?: boolean;
@@ -154,6 +163,12 @@ function MessageBubble({
             name={block.toolUse.name}
             input={block.toolUse.input}
             isPending={isPending}
+            isChildActive={
+              !isPending &&
+              msg.is_approved &&
+              block.toolUse.name.startsWith('invoke_agent_') &&
+              hasActiveChildDelegation?.(block.toolUse.name)
+            }
             onApprove={() => onApprove?.(msg.id)}
             onReject={() => onReject?.(msg.id)}
             isProcessing={isProcessing}
@@ -214,6 +229,27 @@ export default function AgentChat() {
   for (const sa of subAgents) {
     agentNameMap[sa.child_agent_id] = sa.child_agent_name;
   }
+
+  // Determine if a sub-agent delegation tool call has an active child
+  // (approved but the child still has pending tool calls).
+  const hasActiveChildDelegation = useCallback(
+    (toolName: string): boolean => {
+      // Find the matching sub-agent
+      const sa = subAgents.find(
+        (s) => `invoke_agent_${s.child_agent_name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}` === toolName
+          || toolName.startsWith('invoke_agent_'),
+      );
+      if (!sa) return false;
+      // Check if any messages from this child have pending tool calls
+      return messages.some(
+        (m) =>
+          m.agent_id === sa.child_agent_id &&
+          m.message_type === 'tool_call' &&
+          !m.is_approved,
+      );
+    },
+    [subAgents, messages],
+  );
 
   // If a chatId is present (from URL or state), load its messages
   useEffect(() => {
@@ -415,6 +451,7 @@ export default function AgentChat() {
                 agentName={agent.name}
                 agentNameMap={agentNameMap}
                 parentAgentId={agent.id}
+                hasActiveChildDelegation={hasActiveChildDelegation}
                 onApprove={handleApproveToolCall}
                 onReject={handleRejectToolCall}
                 isProcessing={processingApproval === msg.id}

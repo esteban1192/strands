@@ -1,9 +1,23 @@
 """
 Chat resource — endpoints for managing agent conversations.
+
+Delegation-chain architecture
+─────────────────────────────
+When a parent agent delegates to a sub-agent, a ``ChatDelegation`` row is
+created tracking the session.  The delegation chain can be nested:
+A → B → C → …  Each agent's messages are stored with ``agent_id`` set so
+that ``get_messages_as_dicts(…, agent_id=X)`` retrieves only that agent's
+conversation slice.
+
+Approve/reject logic detects which agent *owns* the tool call (via
+``msg.agent_id``) and operates on that agent — *not* the root agent.
+After a child completes, **try_resume_chain** walks up the delegation
+stack, resuming each parent in turn until a parent itself has pending
+approvals or is the root and produces its final answer.
 """
 import logging
 import uuid
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -65,19 +79,21 @@ async def create_chat(
 ):
     """Create a new chat by sending the first message.
 
-    Creates the chat record, invokes the agent, and persists both the
-    user message and the model response messages.
+    Creates the chat record, a root delegation for the agent, invokes the
+    agent, and persists both the user message and the model response.
     """
     # Auto-title from the first prompt (truncated)
     title = request.prompt[:100].strip() or "New chat"
 
     chat = await ChatService.create_chat(db, agent_id, title)
 
+    # Create root delegation for this chat's agent
+    root_deleg = await ChatService.create_delegation(db, chat.id, agent_id)
+
     # Invoke the agent (no prior history on the first message)
     try:
         result = await AgentExecutor.invoke(db, agent_id, request.prompt)
     except AgentExecutionError as e:
-        # Clean up the just-created chat on failure
         await ChatService.delete_chat(db, chat.id)
         raise _map_agent_error(e)
     except MCPConnectionError as e:
@@ -90,6 +106,12 @@ async def create_chat(
         tools_requiring_approval=result.tools_requiring_approval,
         agent_id=agent_id,
     )
+
+    # If no pending approvals, the root delegation completed this turn
+    pending = await ChatService.get_pending_tool_calls(db, chat.id, agent_id=agent_id)
+    if not pending and not result.cancelled_tool_use_ids:
+        await ChatService.complete_delegation(db, root_deleg.id)
+
     await ChatService.touch_updated_at(db, chat.id)
 
     return ChatSendMessageResponse(
@@ -110,17 +132,20 @@ async def send_message(
     request: ChatSendMessageRequest,
     db: AsyncSession = Depends(get_db),
 ):
-    """Send a follow-up message in an existing chat.
-
-    Loads all previous messages from the DB, passes them as history to the
-    agent, then persists the new messages produced by this turn.
-    """
+    """Send a follow-up message in an existing chat."""
     chat = await ChatService.get_chat(db, chat_id)
     if not chat or chat.agent_id != agent_id:
         raise HTTPException(status_code=404, detail="Chat not found")
 
-    # Load conversation history from DB
-    history = await ChatService.get_messages_as_dicts(db, chat_id)
+    # Ensure there's an active root delegation (create one if prior chat
+    # was created before delegation tracking was added, or the previous
+    # root delegation completed).
+    root_deleg = await ChatService.get_active_delegation(db, chat_id, agent_id)
+    if not root_deleg:
+        root_deleg = await ChatService.create_delegation(db, chat_id, agent_id)
+
+    # Load root agent's conversation history
+    history = await ChatService.get_messages_as_dicts(db, chat_id, agent_id=agent_id)
 
     try:
         result = await AgentExecutor.invoke(
@@ -132,14 +157,19 @@ async def send_message(
         raise HTTPException(status_code=502, detail=e.message)
 
     # Persist only the new messages (delta)
-    stored = await ChatService.add_messages(
+    await ChatService.add_messages(
         db, chat_id, result.messages,
         tools_requiring_approval=result.tools_requiring_approval,
         agent_id=agent_id,
     )
+
+    # Check if root completed
+    pending = await ChatService.get_pending_tool_calls(db, chat_id, agent_id=agent_id)
+    if not pending and not result.cancelled_tool_use_ids:
+        await ChatService.complete_delegation(db, root_deleg.id)
+
     await ChatService.touch_updated_at(db, chat_id)
 
-    # Return ALL messages so the frontend has the full picture
     all_messages = await ChatService.get_messages(db, chat_id)
 
     return ChatSendMessageResponse(
@@ -163,24 +193,14 @@ async def approve_tool_call(
     message_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Approve a pending tool call, execute it via MCP, and resume the agent.
+    """Approve a pending tool call and resume the delegation chain.
 
-    For regular tools the flow is:
-      1. Mark the tool_call message as approved.
-      2. Execute the real tool call through the MCP server.
-      3. Replace the placeholder tool_result with the real result.
-      4. If no more pending tool calls remain, re-invoke the agent with the
-         corrected history so it can continue.
+    Key insight: the tool call's ``agent_id`` tells us *which* agent in
+    the chain owns this call.  We operate on that agent — not the root.
 
-    For **sub-agent** tool calls (tool name starts with ``invoke_agent_``):
-      1. Mark the tool_call message as approved.
-      2. Extract the sub-agent prompt from the tool call input.
-      3. Invoke the child agent via ``AgentExecutor.invoke``.
-      4. Persist the child agent's messages (attributed to the child).
-      5. Use the child's text response as the tool result for the parent.
-      6. If the child itself has pending approvals, stop — user must
-         resolve those first before the parent can resume.
-      7. Otherwise, if no more pending calls remain, resume the parent.
+    For **regular tools**: execute via MCP, then ``try_resume_chain``.
+    For **sub-agent tools**: create a child delegation, invoke the child
+    agent, persist its messages, and propagate upward.
     """
     chat = await ChatService.get_chat(db, chat_id)
     if not chat or chat.agent_id != agent_id:
@@ -193,9 +213,14 @@ async def approve_tool_call(
     tool_name = approved.tool_call.tool_name if approved.tool_call else None
     tool_input = approved.tool_call.input if approved.tool_call else {}
     tool_use_id = approved.tool_call.tool_use_id if approved.tool_call else None
+    owning_agent_id = approved.agent_id  # which agent made this call
 
     if not tool_name:
         raise HTTPException(status_code=400, detail="No tool call data found")
+
+    if not owning_agent_id:
+        # Fallback for legacy messages without agent_id
+        owning_agent_id = agent_id
 
     is_sub_agent = AgentExecutor.is_sub_agent_tool(tool_name)
 
@@ -205,12 +230,10 @@ async def approve_tool_call(
         if not child_prompt:
             raise HTTPException(status_code=400, detail="Sub-agent tool call missing 'prompt' input")
 
-        # Resolve child agent ID from the parent's sub-agent map.
-        # We re-derive the map from the DB rather than caching it, so the
-        # approval is always fresh.
+        # Resolve child agent ID
         from api.services import AgentSubAgentService
-        child_agents = await AgentSubAgentService.get_enabled_sub_agents(db, agent_id)
-        child_agent_id = None
+        child_agents = await AgentSubAgentService.get_enabled_sub_agents(db, owning_agent_id)
+        child_agent_id: Optional[uuid.UUID] = None
         for child in child_agents:
             if AgentExecutor.sub_agent_tool_name(child.name) == tool_name:
                 child_agent_id = child.id
@@ -219,52 +242,72 @@ async def approve_tool_call(
         if child_agent_id is None:
             raise HTTPException(status_code=404, detail=f"Sub-agent for tool '{tool_name}' not found")
 
-        # Invoke the child agent
-        try:
-            child_result = await AgentExecutor.invoke(db, child_agent_id, child_prompt)
-        except AgentExecutionError as e:
-            # Treat child failure as an error tool_result for the parent
-            await ChatService.update_tool_result(db, chat_id, tool_use_id, {"error": str(e)})
-            child_result = None
-        except MCPConnectionError as e:
-            await ChatService.update_tool_result(db, chat_id, tool_use_id, {"error": e.message})
-            child_result = None
+        # Find the owning agent's delegation
+        owner_deleg = await ChatService.get_active_delegation(db, chat_id, owning_agent_id)
+        if not owner_deleg:
+            raise HTTPException(status_code=400, detail="No active delegation found for owning agent")
 
-        if child_result is not None:
-            # Persist child agent's messages (attributed to child)
-            if child_result.messages:
-                await ChatService.add_messages(
-                    db, chat_id, child_result.messages,
-                    tools_requiring_approval=child_result.tools_requiring_approval,
-                    agent_id=child_agent_id,
-                )
-
-            # If the child has pending approvals, we cannot yet provide
-            # the parent with a final answer — the user must resolve them.
-            child_pending = await ChatService.get_pending_tool_calls(db, chat_id)
-            # Filter to only those attributed to the child agent
-            child_pending_for_child = [
-                p for p in child_pending if p.agent_id == child_agent_id
-            ]
-
-            if child_pending_for_child:
-                # Child has unresolved tool calls — stop here.
-                await ChatService.touch_updated_at(db, chat_id)
-                all_messages = await ChatService.get_messages(db, chat_id)
-                return ChatSendMessageResponse(
-                    chat_id=chat_id,
-                    response="",
-                    messages=all_messages,
-                )
-
-            # Child completed — use its response as the parent tool result
+        # Cycle detection — walk up the chain
+        has_cycle = await ChatService.check_delegation_cycle(
+            db, chat_id, owner_deleg.id, child_agent_id,
+        )
+        if has_cycle:
+            # Treat as error tool_result for the parent
             await ChatService.update_tool_result(
-                db, chat_id, tool_use_id, child_result.response,
+                db, chat_id, tool_use_id,
+                {"error": "Delegation cycle detected — this agent is already in the chain."},
             )
+        else:
+            # Create child delegation
+            child_deleg = await ChatService.create_delegation(
+                db, chat_id, child_agent_id,
+                parent_delegation_id=owner_deleg.id,
+                tool_use_id=tool_use_id,
+            )
+
+            # Invoke child
+            try:
+                child_result = await AgentExecutor.invoke(db, child_agent_id, child_prompt)
+            except (AgentExecutionError, MCPConnectionError) as e:
+                err_msg = e.message if hasattr(e, "message") else str(e)
+                await ChatService.update_tool_result(
+                    db, chat_id, tool_use_id, {"error": err_msg},
+                )
+                await ChatService.complete_delegation(db, child_deleg.id, status="failed")
+                child_result = None
+
+            if child_result is not None:
+                # Persist child's messages
+                if child_result.messages:
+                    await ChatService.add_messages(
+                        db, chat_id, child_result.messages,
+                        tools_requiring_approval=child_result.tools_requiring_approval,
+                        agent_id=child_agent_id,
+                    )
+
+                # Does the child have pending approvals?
+                child_pending = await ChatService.get_pending_tool_calls(
+                    db, chat_id, agent_id=child_agent_id,
+                )
+                if child_pending:
+                    # Child is paused — user must resolve its tools first
+                    await ChatService.touch_updated_at(db, chat_id)
+                    all_messages = await ChatService.get_messages(db, chat_id)
+                    return ChatSendMessageResponse(
+                        chat_id=chat_id, response="", messages=all_messages,
+                    )
+
+                # Child completed — use its response as parent's tool_result
+                await ChatService.update_tool_result(
+                    db, chat_id, tool_use_id, child_result.response,
+                )
+                await ChatService.complete_delegation(db, child_deleg.id)
     else:
         # ---- Regular MCP tool execution path ----
         try:
-            real_result = await MCPManager.execute_tool(db, agent_id, tool_name, tool_input or {})
+            real_result = await MCPManager.execute_tool(
+                db, owning_agent_id, tool_name, tool_input or {},
+            )
         except Exception as exc:
             logger.error("Tool execution failed for '%s': %s", tool_name, exc)
             real_result = {"error": str(exc)}
@@ -273,34 +316,17 @@ async def approve_tool_call(
             db, chat_id, tool_use_id, real_result,
         )
 
-    # Only re-invoke the parent agent when ALL pending tool calls are resolved.
-    pending = await ChatService.get_pending_tool_calls(db, chat_id)
-    result = None
-    if not pending:
-        history = await ChatService.get_messages_as_dicts(db, chat_id)
-        try:
-            result = await AgentExecutor.invoke(
-                db, agent_id, None, history=history,
-            )
-        except AgentExecutionError as e:
-            raise _map_agent_error(e)
-        except MCPConnectionError as e:
-            raise HTTPException(status_code=502, detail=e.message)
-
-        if result.messages:
-            await ChatService.add_messages(
-                db, chat_id, result.messages,
-                tools_requiring_approval=result.tools_requiring_approval,
-                agent_id=agent_id,
-            )
+    # Try to resume the delegation chain upward
+    final_response = await _try_resume_chain(
+        db, chat_id, owning_agent_id, agent_id,
+    )
 
     await ChatService.touch_updated_at(db, chat_id)
-
     all_messages = await ChatService.get_messages(db, chat_id)
 
     return ChatSendMessageResponse(
         chat_id=chat_id,
-        response=result.response if result else "",
+        response=final_response,
         messages=all_messages,
     )
 
@@ -322,8 +348,7 @@ async def reject_tool_call(
     """Reject a pending tool call.
 
     Marks the tool call as resolved and feeds a rejection message back
-    to the agent so it can adapt its response.  The agent is only
-    re-invoked once all pending tool calls have been resolved.
+    to the owning agent.  Then tries to resume the delegation chain.
     """
     chat = await ChatService.get_chat(db, chat_id)
     if not chat or chat.agent_id != agent_id:
@@ -333,35 +358,19 @@ async def reject_tool_call(
     if not rejected:
         raise HTTPException(status_code=404, detail="Tool call message not found or already resolved")
 
-    # Only re-invoke when ALL pending tool calls have been resolved.
-    pending = await ChatService.get_pending_tool_calls(db, chat_id)
-    if not pending:
-        # All resolved — let the agent continue.
-        # Pass prompt=None so no empty user message is injected.
-        history = await ChatService.get_messages_as_dicts(db, chat_id)
-        try:
-            result = await AgentExecutor.invoke(
-                db, agent_id, None, history=history,
-            )
-        except AgentExecutionError as e:
-            raise _map_agent_error(e)
-        except MCPConnectionError as e:
-            raise HTTPException(status_code=502, detail=e.message)
+    owning_agent_id = rejected.agent_id or agent_id
 
-        if result.messages:
-            await ChatService.add_messages(
-                db, chat_id, result.messages,
-                tools_requiring_approval=result.tools_requiring_approval,
-                agent_id=agent_id,
-            )
+    # Try to resume the chain
+    final_response = await _try_resume_chain(
+        db, chat_id, owning_agent_id, agent_id,
+    )
 
     await ChatService.touch_updated_at(db, chat_id)
-
     all_messages = await ChatService.get_messages(db, chat_id)
 
     return ChatSendMessageResponse(
         chat_id=chat_id,
-        response=result.response if not pending else "",
+        response=final_response,
         messages=all_messages,
     )
 
@@ -385,7 +394,101 @@ async def delete_chat(
 
 
 # ------------------------------------------------------------------
-# Helpers
+# Delegation chain helpers
+# ------------------------------------------------------------------
+
+async def _try_resume_chain(
+    db: AsyncSession,
+    chat_id: uuid.UUID,
+    current_agent_id: uuid.UUID,
+    root_agent_id: uuid.UUID,
+) -> str:
+    """Recursively resume agents up the delegation chain.
+
+    Starting from ``current_agent_id``, checks if all pending tool calls
+    for that agent are resolved.  If so, re-invokes it with its filtered
+    history.  If the agent completes (no new pending calls), its response
+    is propagated up to the parent delegation and the process repeats.
+
+    Returns the final text response (from the root) or "" if the chain
+    is still paused.
+    """
+    agent_id = current_agent_id
+
+    while True:
+        # Any remaining pending calls for THIS agent?
+        pending = await ChatService.get_pending_tool_calls(
+            db, chat_id, agent_id=agent_id,
+        )
+        if pending:
+            return ""  # Still waiting on this agent
+
+        # Re-invoke with this agent's filtered history
+        history = await ChatService.get_messages_as_dicts(
+            db, chat_id, agent_id=agent_id,
+        )
+
+        try:
+            result = await AgentExecutor.invoke(
+                db, agent_id, None, history=history,
+            )
+        except AgentExecutionError as e:
+            raise _map_agent_error(e)
+        except MCPConnectionError as e:
+            raise HTTPException(status_code=502, detail=e.message)
+
+        # Persist new messages
+        if result.messages:
+            await ChatService.add_messages(
+                db, chat_id, result.messages,
+                tools_requiring_approval=result.tools_requiring_approval,
+                agent_id=agent_id,
+            )
+
+        # Does this agent now have new pending approvals?
+        new_pending = await ChatService.get_pending_tool_calls(
+            db, chat_id, agent_id=agent_id,
+        )
+        if new_pending:
+            return ""  # Agent paused on new tool calls
+
+        # Agent completed this turn.  Is it the root?
+        if agent_id == root_agent_id:
+            # Mark root delegation completed
+            root_deleg = await ChatService.get_active_delegation(
+                db, chat_id, root_agent_id,
+            )
+            if root_deleg:
+                await ChatService.complete_delegation(db, root_deleg.id)
+            return result.response
+
+        # It's a child — find its delegation to get the parent info
+        deleg = await ChatService.get_active_delegation(db, chat_id, agent_id)
+        if not deleg or not deleg.parent_delegation_id:
+            # Orphaned delegation — treat as if root
+            return result.response
+
+        parent_deleg = await ChatService.get_delegation_by_id(
+            db, deleg.parent_delegation_id,
+        )
+        if not parent_deleg:
+            return result.response
+
+        # Complete the child delegation
+        await ChatService.complete_delegation(db, deleg.id)
+
+        # Feed child's response as the parent's tool_result
+        if deleg.tool_use_id:
+            await ChatService.update_tool_result(
+                db, chat_id, deleg.tool_use_id, result.response,
+            )
+
+        # Move up to the parent agent
+        agent_id = parent_deleg.agent_id
+
+
+# ------------------------------------------------------------------
+# Error mapping
 # ------------------------------------------------------------------
 
 def _map_agent_error(e: AgentExecutionError) -> HTTPException:
