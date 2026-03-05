@@ -22,6 +22,7 @@ from sqlalchemy.orm import selectinload
 from api.db_models import AgentModel, ToolModel, MCPModel
 from api.services.agent_sub_agent_service import AgentSubAgentService
 from .mcp_manager import MCPManager
+from .mcp_session_cache import session_cache
 from .hooks import ToolApprovalHook
 from .exceptions import MCPConnectionError, CoreException
 
@@ -83,15 +84,18 @@ class AgentExecutor:
         agent_id: uuid.UUID,
         prompt: Optional[str],
         history: List[Dict[str, Any]] | None = None,
+        chat_id: Optional[uuid.UUID] = None,
     ) -> AgentInvocationResult:
         """Run a prompt against an agent, using its linked MCP tools.
 
         Flow:
           1. Load the agent from the DB.
           2. Find all distinct MCPs linked to the agent's tools.
-          3. Build an MCPClient for each MCP.
-          4. Start all clients, create a Strands Agent, run the prompt.
-          5. Stop all clients and return the response.
+          3. Obtain MCPClient instances (from session cache when ``chat_id``
+             is provided, or ephemeral otherwise).
+          4. Create a Strands Agent, run the prompt.
+          5. Return the response.  Cached clients stay alive for the next
+             turn; ephemeral clients are cleaned up by the Agent.
 
         Tools that require approval are **not** executed.  Instead, the hook
         cancels their calls and returns a placeholder error result to the
@@ -109,6 +113,9 @@ class AgentExecutor:
             history: Optional list of prior conversation messages to pre-load
                 into the agent.  Each dict must have ``role`` and ``content``
                 keys matching the Strands message format.
+            chat_id: Optional chat UUID.  When provided, MCP sessions are
+                cached and reused across turns so that server-side state
+                (e.g. database connections) is preserved.
 
         Returns:
             AgentInvocationResult with the text response and the *new* messages
@@ -143,7 +150,7 @@ class AgentExecutor:
         # Load the assigned tool models so we know their names and MCP ids.
         assigned_tools: List[ToolModel] = []
         mcp_allowed_tools: Dict[uuid.UUID, List[str]] = {}
-        clients: List[MCPClient] = []
+        clients: list = []
 
         if tool_ids:
             tool_stmt = select(ToolModel).where(ToolModel.id.in_(tool_ids))
@@ -160,28 +167,61 @@ class AgentExecutor:
             result = await db.execute(stmt)
             mcps = result.scalars().all()
 
-            # 3. Build MCPClient for each MCP, filtering to only the assigned tools
-            for mcp in mcps:
-                try:
-                    transport_callable = MCPManager._get_transport_callable(
-                        mcp.transport_type,
-                        mcp.url,
-                        command=mcp.command,
-                        args=mcp.args,
-                        env=mcp.env,
-                    )
-                    allowed = mcp_allowed_tools.get(mcp.id, [])
-                    clients.append(
-                        MCPClient(
-                            transport_callable,
-                            tool_filters={"allowed": allowed} if allowed else None,
+            # 3. Obtain MCPClient instances — cached when chat_id is provided,
+            #    ephemeral otherwise.
+            if chat_id is not None:
+                mcp_configs = []
+                for mcp in mcps:
+                    try:
+                        transport_callable = MCPManager._get_transport_callable(
+                            mcp.transport_type,
+                            mcp.url,
+                            command=mcp.command,
+                            args=mcp.args,
+                            env=mcp.env,
                         )
-                    )
-                except (MCPConnectionError, Exception) as exc:
-                    logger.error("Failed to build MCP client for '%s': %s", mcp.name, exc)
+                        allowed = mcp_allowed_tools.get(mcp.id, [])
+                        mcp_configs.append({
+                            "mcp_id": mcp.id,
+                            "transport_callable": transport_callable,
+                            "allowed_tools": allowed,
+                        })
+                    except (MCPConnectionError, Exception) as exc:
+                        logger.error("Failed to build MCP client for '%s': %s", mcp.name, exc)
+                        raise AgentExecutionError(
+                            f"Failed to configure MCP '{mcp.name}': {exc}"
+                        ) from exc
+
+                try:
+                    clients = session_cache.get_or_create_clients(chat_id, mcp_configs)
+                except Exception as exc:
+                    logger.error("Failed to obtain cached MCP clients: %s", exc)
                     raise AgentExecutionError(
-                        f"Failed to configure MCP '{mcp.name}': {exc}"
+                        f"Failed to start MCP sessions: {exc}"
                     ) from exc
+            else:
+                # No chat_id — create ephemeral clients (Agent manages lifecycle)
+                for mcp in mcps:
+                    try:
+                        transport_callable = MCPManager._get_transport_callable(
+                            mcp.transport_type,
+                            mcp.url,
+                            command=mcp.command,
+                            args=mcp.args,
+                            env=mcp.env,
+                        )
+                        allowed = mcp_allowed_tools.get(mcp.id, [])
+                        clients.append(
+                            MCPClient(
+                                transport_callable,
+                                tool_filters={"allowed": allowed} if allowed else None,
+                            )
+                        )
+                    except (MCPConnectionError, Exception) as exc:
+                        logger.error("Failed to build MCP client for '%s': %s", mcp.name, exc)
+                        raise AgentExecutionError(
+                            f"Failed to configure MCP '{mcp.name}': {exc}"
+                        ) from exc
 
         # 2b. Determine which tools require approval
         tools_requiring_approval: set[str] = {

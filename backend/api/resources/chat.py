@@ -34,6 +34,7 @@ from api.services import ChatService
 from core.agent_executor import AgentExecutor, AgentExecutionError, SUB_AGENT_TOOL_PREFIX
 from core.exceptions import MCPConnectionError
 from core.mcp_manager import MCPManager
+from core.mcp_session_cache import session_cache
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,7 @@ async def create_chat(
 
     # Invoke the agent (no prior history on the first message)
     try:
-        result = await AgentExecutor.invoke(db, agent_id, request.prompt)
+        result = await AgentExecutor.invoke(db, agent_id, request.prompt, chat_id=chat.id)
     except AgentExecutionError as e:
         await ChatService.delete_chat(db, chat.id)
         raise _map_agent_error(e)
@@ -149,7 +150,7 @@ async def send_message(
 
     try:
         result = await AgentExecutor.invoke(
-            db, agent_id, request.prompt, history=history,
+            db, agent_id, request.prompt, history=history, chat_id=chat_id,
         )
     except AgentExecutionError as e:
         raise _map_agent_error(e)
@@ -267,7 +268,7 @@ async def approve_tool_call(
 
             # Invoke child
             try:
-                child_result = await AgentExecutor.invoke(db, child_agent_id, child_prompt)
+                child_result = await AgentExecutor.invoke(db, child_agent_id, child_prompt, chat_id=chat_id)
             except (AgentExecutionError, MCPConnectionError) as e:
                 err_msg = e.message if hasattr(e, "message") else str(e)
                 await ChatService.update_tool_result(
@@ -307,6 +308,7 @@ async def approve_tool_call(
         try:
             real_result = await MCPManager.execute_tool(
                 db, owning_agent_id, tool_name, tool_input or {},
+                chat_id=chat_id,
             )
         except Exception as exc:
             logger.error("Tool execution failed for '%s': %s", tool_name, exc)
@@ -389,6 +391,7 @@ async def delete_chat(
     chat = await ChatService.get_chat(db, chat_id)
     if not chat or chat.agent_id != agent_id:
         raise HTTPException(status_code=404, detail="Chat not found")
+    session_cache.evict_chat(chat_id)
     await ChatService.delete_chat(db, chat_id)
     return {"message": f"Chat {chat_id} deleted"}
 
@@ -430,7 +433,7 @@ async def _try_resume_chain(
 
         try:
             result = await AgentExecutor.invoke(
-                db, agent_id, None, history=history,
+                db, agent_id, None, history=history, chat_id=chat_id,
             )
         except AgentExecutionError as e:
             raise _map_agent_error(e)

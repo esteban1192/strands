@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from api.models import HealthResponse
 from api.resources import agent, tool, mcp, tool_parameters, chat, agent_sub_agents
 from api.database import engine
+from core.mcp_session_cache import session_cache
 
 
 @asynccontextmanager
@@ -24,6 +25,7 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     print("Shutting down Strands API...")
+    session_cache.shutdown()
     await engine.dispose()
 
 

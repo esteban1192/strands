@@ -143,17 +143,21 @@ class MCPManager:
         agent_id: uuid.UUID,
         tool_name: str,
         tool_input: Dict[str, Any],
+        chat_id: Optional[uuid.UUID] = None,
     ) -> Any:
         """Execute a single tool call via its MCP server.
 
-        Looks up the tool by name, finds the MCP it belongs to, connects,
-        calls the tool, and returns the raw result text.
+        Looks up the tool by name, finds the MCP it belongs to, obtains a
+        client (from the session cache when ``chat_id`` is provided, or a
+        fresh ephemeral one), calls the tool, and returns the result text.
 
         Args:
             db: Async database session.
             agent_id: UUID of the agent (used to resolve tool→MCP mapping).
             tool_name: Name of the tool to call.
             tool_input: Input arguments for the tool call.
+            chat_id: Optional chat UUID.  When provided, the session cache
+                is used so server-side state is preserved across turns.
 
         Returns:
             The tool result as a string.
@@ -163,6 +167,7 @@ class MCPManager:
         """
         from strands.tools.mcp import MCPClient
         from api.db_models import ToolModel as ToolDBModel
+        from .mcp_session_cache import session_cache
 
         # Find the tool and its MCP
         stmt = (
@@ -186,13 +191,30 @@ class MCPManager:
             env=mcp.env,
         )
 
-        try:
-            client = MCPClient(transport_callable)
-            client.start()
-        except Exception as exc:
-            raise MCPConnectionError(
-                f"Could not connect to MCP server '{mcp.name}': {exc}"
-            ) from exc
+        # Obtain client — cached or ephemeral
+        ephemeral = chat_id is None
+        client: MCPClient
+
+        if not ephemeral:
+            try:
+                clients = session_cache.get_or_create_clients(chat_id, [{
+                    "mcp_id": mcp.id,
+                    "transport_callable": transport_callable,
+                    "allowed_tools": [tool_name],
+                }])
+                client = clients[0]
+            except Exception as exc:
+                raise MCPConnectionError(
+                    f"Could not obtain cached MCP session for '{mcp.name}': {exc}"
+                ) from exc
+        else:
+            try:
+                client = MCPClient(transport_callable)
+                client.start()
+            except Exception as exc:
+                raise MCPConnectionError(
+                    f"Could not connect to MCP server '{mcp.name}': {exc}"
+                ) from exc
 
         try:
             # Use the MCP client to call the tool directly.
@@ -221,10 +243,11 @@ class MCPManager:
                 f"Tool execution failed for '{tool_name}': {exc}"
             ) from exc
         finally:
-            try:
-                client.stop(None, None, None)
-            except Exception:
-                logger.debug("Error closing MCP client (ignored)", exc_info=True)
+            if ephemeral:
+                try:
+                    client.stop(None, None, None)
+                except Exception:
+                    logger.debug("Error closing MCP client (ignored)", exc_info=True)
 
     @staticmethod
     async def sync_tools(db: AsyncSession, mcp_id: uuid.UUID) -> List[ToolResponse]:
