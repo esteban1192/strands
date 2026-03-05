@@ -122,6 +122,12 @@ class MCPSessionCache:
             )
             client.start()
 
+            # Mark the client as "started via tool provider" so that when
+            # Agent.__init__ → load_tools() is called, it does NOT try to
+            # call start() a second time (which would raise
+            # MCPClientInitializationError).
+            client._tool_provider_started = True
+
             # Register ourselves as a consumer so the Agent's cleanup
             # does NOT stop the background thread.
             client.add_consumer(_CACHE_CONSUMER_ID)
