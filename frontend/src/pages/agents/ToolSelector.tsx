@@ -10,20 +10,18 @@ interface ToolSelectorProps {
 }
 
 export default function ToolSelector({ agentId }: ToolSelectorProps) {
-  // Data
   const [mcps, setMcps] = useState<MCP[]>([]);
   const [selectedMcpId, setSelectedMcpId] = useState<string>('');
   const [tools, setTools] = useState<Tool[]>([]);
   const [assignedTools, setAssignedTools] = useState<AgentToolDetail[]>([]);
 
-  // UI state
   const [loadingMcps, setLoadingMcps] = useState(true);
   const [loadingTools, setLoadingTools] = useState(false);
   const [toggling, setToggling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [addToolsOpen, setAddToolsOpen] = useState(false);
 
-  // ── Load MCPs + assigned tools on mount ───────────────
   useEffect(() => {
     let cancelled = false;
 
@@ -50,7 +48,6 @@ export default function ToolSelector({ agentId }: ToolSelectorProps) {
     return () => { cancelled = true; };
   }, [agentId]);
 
-  // ── Load tools when selected MCP changes ──────────────
   const fetchTools = useCallback(async (mcpId: string) => {
     if (!mcpId) { setTools([]); return; }
     setLoadingTools(true);
@@ -71,7 +68,6 @@ export default function ToolSelector({ agentId }: ToolSelectorProps) {
     if (selectedMcpId) fetchTools(selectedMcpId);
   }, [selectedMcpId, fetchTools]);
 
-  // ── Derived data ──────────────────────────────────────
   const assignedIds = useMemo(
     () => new Set(assignedTools.map((t) => t.tool_id)),
     [assignedTools],
@@ -80,7 +76,6 @@ export default function ToolSelector({ agentId }: ToolSelectorProps) {
   const totalPages = Math.max(1, Math.ceil(tools.length / PAGE_SIZE));
   const paginatedTools = tools.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
-  // ── Toggle tool assignment ────────────────────────────
   const handleToggle = async (tool: Tool) => {
     if (toggling) return;
     setToggling(tool.id);
@@ -112,102 +107,149 @@ export default function ToolSelector({ agentId }: ToolSelectorProps) {
     }
   };
 
-  // ── Render ────────────────────────────────────────────
+  const handleRemoveAssigned = async (toolId: string) => {
+    if (toggling) return;
+    setToggling(toolId);
+    setError(null);
+    try {
+      await agentApi.removeTool(agentId, toolId);
+      setAssignedTools((prev) => prev.filter((t) => t.tool_id !== toolId));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to remove tool');
+    } finally {
+      setToggling(null);
+    }
+  };
+
   if (loadingMcps) {
-    return <div className="tool-selector__status">Loading MCPs…</div>;
+    return <div className="tool-selector__status">Loading tools…</div>;
   }
 
   return (
     <div className="tool-selector">
+      {/* ── Attached tools ── */}
       <div className="tool-selector__header">
-        <h3>Tools</h3>
-        <span className="tool-selector__count">{assignedTools.length} assigned</span>
+        <h3>Attached tools</h3>
+        <span className="tool-selector__count">{assignedTools.length}</span>
       </div>
 
-      {/* MCP filter */}
-      <div className="tool-selector__filter">
-        <label htmlFor="mcp-filter">Filter by MCP</label>
-        <select
-          id="mcp-filter"
-          value={selectedMcpId}
-          onChange={(e) => setSelectedMcpId(e.target.value)}
-        >
-          {mcps.length === 0 && <option value="">No MCPs available</option>}
-          {mcps.map((mcp) => (
-            <option key={mcp.id} value={mcp.id}>
-              {mcp.name} ({mcp.tools_count} tools)
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {error && <div className="tool-selector__error">{error}</div>}
-
-      {/* Tool list */}
       <div className="tool-selector__list">
-        {loadingTools ? (
-          <div className="tool-selector__status">Loading tools…</div>
-        ) : paginatedTools.length === 0 ? (
-          <div className="tool-selector__empty">
-            {selectedMcpId ? 'No tools found for this MCP' : 'Select an MCP to see tools'}
-          </div>
+        {assignedTools.length === 0 ? (
+          <div className="tool-selector__empty">No tools attached yet</div>
         ) : (
-          paginatedTools.map((tool) => {
-            const isAssigned = assignedIds.has(tool.id);
-            const isToggling = toggling === tool.id;
-
-            return (
-              <div
-                key={tool.id}
-                className={`tool-selector__item${isAssigned ? ' tool-selector__item--assigned' : ''}`}
-                onClick={() => handleToggle(tool)}
-              >
-                <input
-                  type="checkbox"
-                  className="tool-selector__checkbox"
-                  checked={isAssigned}
-                  readOnly
-                  tabIndex={-1}
-                />
-                <div className="tool-selector__info">
-                  <div className="tool-selector__name">{tool.name}</div>
-                  {tool.description && (
-                    <div className="tool-selector__desc">{tool.description}</div>
-                  )}
-                </div>
-                {!isToggling ? (
-                  <span
-                    className={`tool-selector__toggle-badge ${
-                      isAssigned
-                        ? 'tool-selector__toggle-badge--remove'
-                        : 'tool-selector__toggle-badge--add'
-                    }`}
-                  >
-                    {isAssigned ? 'remove' : 'add'}
-                  </span>
-                ) : (
-                  <span className="tool-selector__toggle-badge tool-selector__toggle-badge--add">
-                    …
-                  </span>
-                )}
+          assignedTools.map((at) => (
+            <div key={at.tool_id} className="tool-selector__item tool-selector__item--assigned">
+              <div className="tool-selector__info">
+                <div className="tool-selector__name">{at.tool_name}</div>
               </div>
-            );
-          })
+              <button
+                type="button"
+                className="tool-selector__toggle-badge tool-selector__toggle-badge--remove"
+                disabled={toggling === at.tool_id}
+                onClick={() => handleRemoveAssigned(at.tool_id)}
+              >
+                {toggling === at.tool_id ? '…' : 'remove'}
+              </button>
+            </div>
+          ))
         )}
       </div>
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="tool-selector__pagination">
-          <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            ← Prev
-          </button>
-          <span className="tool-selector__page-info">
-            {page} / {totalPages}
-          </span>
-          <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
-            Next →
-          </button>
+      {/* ── Add tools (collapsible) ── */}
+      <button
+        type="button"
+        className={`tool-selector__add-trigger${addToolsOpen ? ' tool-selector__add-trigger--open' : ''}`}
+        onClick={() => setAddToolsOpen((v) => !v)}
+      >
+        <span className="tool-selector__add-trigger-icon">{addToolsOpen ? '−' : '+'}</span>
+        Add tools
+      </button>
+
+      {addToolsOpen && (
+        <div className="tool-selector__add-panel">
+          <div className="tool-selector__filter">
+            <label htmlFor="mcp-filter">Filter by MCP</label>
+            <select
+              id="mcp-filter"
+              value={selectedMcpId}
+              onChange={(e) => setSelectedMcpId(e.target.value)}
+            >
+              {mcps.length === 0 && <option value="">No MCPs available</option>}
+              {mcps.map((mcp) => (
+                <option key={mcp.id} value={mcp.id}>
+                  {mcp.name} ({mcp.tools_count} tools)
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {error && <div className="tool-selector__error">{error}</div>}
+
+          <div className="tool-selector__list">
+            {loadingTools ? (
+              <div className="tool-selector__status">Loading tools…</div>
+            ) : paginatedTools.length === 0 ? (
+              <div className="tool-selector__empty">
+                {selectedMcpId ? 'No tools found for this MCP' : 'Select an MCP to see tools'}
+              </div>
+            ) : (
+              paginatedTools.map((tool) => {
+                const isAssigned = assignedIds.has(tool.id);
+                const isToggling = toggling === tool.id;
+
+                return (
+                  <div
+                    key={tool.id}
+                    className={`tool-selector__item${isAssigned ? ' tool-selector__item--assigned' : ''}`}
+                    onClick={() => handleToggle(tool)}
+                  >
+                    <input
+                      type="checkbox"
+                      className="tool-selector__checkbox"
+                      checked={isAssigned}
+                      readOnly
+                      tabIndex={-1}
+                    />
+                    <div className="tool-selector__info">
+                      <div className="tool-selector__name">{tool.name}</div>
+                      {tool.description && (
+                        <div className="tool-selector__desc">{tool.description}</div>
+                      )}
+                    </div>
+                    {!isToggling ? (
+                      <span
+                        className={`tool-selector__toggle-badge ${
+                          isAssigned
+                            ? 'tool-selector__toggle-badge--remove'
+                            : 'tool-selector__toggle-badge--add'
+                        }`}
+                      >
+                        {isAssigned ? 'remove' : 'add'}
+                      </span>
+                    ) : (
+                      <span className="tool-selector__toggle-badge tool-selector__toggle-badge--add">
+                        …
+                      </span>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="tool-selector__pagination">
+              <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+                ← Prev
+              </button>
+              <span className="tool-selector__page-info">
+                {page} / {totalPages}
+              </span>
+              <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+                Next →
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

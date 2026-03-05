@@ -48,11 +48,11 @@ export default function AgentList() {
             </thead>
             <tbody>
               {agents.map((agent) => (
-                <tr key={agent.id} onClick={() => navigate(`/agents/${agent.id}`)} className="clickable-row">
+                <tr key={agent.id} onClick={() => navigate(`/agents/${agent.id}/chat`)} className="clickable-row">
                   <td className="cell-primary">{agent.name}</td>
                   <td className="cell-secondary">{agent.model}</td>
                   <td><StatusBadge status={agent.status} /></td>
-                  <td>{agent.tools?.length ?? 0}</td>
+                  <td>{agent.tools_count}</td>
                   <td className="cell-date">{new Date(agent.created_at).toLocaleDateString()}</td>
                   <td className="cell-actions">
                     <button

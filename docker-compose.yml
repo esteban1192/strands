@@ -111,13 +111,14 @@ services:
     container_name: strands-mcp-filesystem
     restart: unless-stopped
     command: >
-      --stdio "mcp-filesystem-server /workspace"
+      --stdio "mcp-filesystem-server /workspace /lambda-terraform"
       --port 8000
       --outputTransport streamableHttp
       --streamableHttpPath /mcp
       --healthEndpoint /health
     volumes:
       - ./:/workspace:ro
+      - ../cloudwatch_experiment:/lambda-terraform:ro
     networks:
       - strands-network
     ports:

@@ -5,9 +5,9 @@ export interface Agent {
   model: string;
   system_prompt: string | null;
   status: AgentStatus;
+  tools_count: number;
   created_at: string;
   updated_at: string;
-  tools: AgentToolAssociation[];
 }
 
 export type AgentStatus = 'active' | 'inactive' | 'paused';
