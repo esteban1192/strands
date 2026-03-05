@@ -195,9 +195,19 @@ class MCPManager:
             ) from exc
 
         try:
-            # Use the MCP client to call the tool directly
-            result = client.call_tool_sync(tool_name, tool_input)
-            # Extract text from the result
+            # Use the MCP client to call the tool directly.
+            # call_tool_sync signature: (tool_use_id, name, arguments)
+            tool_use_id = f"tooluse_{uuid.uuid4().hex[:20]}"
+            result = client.call_tool_sync(tool_use_id, tool_name, tool_input)
+            # result is an MCPToolResult dict with "status", "content", etc.
+            if isinstance(result, dict):
+                content_blocks = result.get("content", [])
+                texts = []
+                for block in content_blocks:
+                    if isinstance(block, dict) and "text" in block:
+                        texts.append(block["text"])
+                return "\n".join(texts) if texts else str(result)
+            # Fallback for unexpected result types
             if hasattr(result, "content"):
                 texts = []
                 for block in result.content:

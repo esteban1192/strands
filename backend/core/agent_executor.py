@@ -300,28 +300,36 @@ class AgentExecutor:
 
         When a tool call is cancelled for approval, the model still generates
         a text response (e.g. "I couldn't run the tool").  That response is
-        stale — we don't want to persist it.  This helper finds the last
+        stale — we don't want to persist it.  This helper finds the *first*
         ``user`` message containing a cancelled ``toolResult`` and strips
-        any assistant messages that come after it.
+        everything that comes after it.
+
+        We truncate at the first (not last) cancelled result because the
+        model may retry the same tool after seeing the cancellation error,
+        producing duplicate pending calls that block the resume chain.
+        Only the first cancelled attempt is kept; when the user approves it
+        the agent is re-invoked and can decide what to do next.
         """
-        # Find the index of the last user message containing a cancelled
+        # Find the index of the first user message containing a cancelled
         # tool result.
-        last_cancelled_idx = -1
+        first_cancelled_idx = -1
         for idx, msg in enumerate(messages):
             if msg.get("role") != "user":
                 continue
             for block in msg.get("content", []):
                 tr = block.get("toolResult") if isinstance(block, dict) else None
                 if tr and tr.get("toolUseId") in cancelled_ids:
-                    last_cancelled_idx = idx
+                    first_cancelled_idx = idx
                     break  # found one in this message — that's enough
+            if first_cancelled_idx != -1:
+                break  # stop at the first match
 
-        if last_cancelled_idx == -1:
+        if first_cancelled_idx == -1:
             return messages  # nothing to truncate
 
         # Keep everything up to and including the message with the cancelled
-        # result, dropping any subsequent assistant turns.
-        return messages[: last_cancelled_idx + 1]
+        # result, dropping any subsequent messages (stale retries).
+        return messages[: first_cancelled_idx + 1]
 
     @staticmethod
     def _build_sub_agent_tool(tool_name: str, child_agent: AgentModel):
