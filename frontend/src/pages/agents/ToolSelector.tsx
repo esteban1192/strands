@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { agentApi, mcpApi } from '@/api';
 import type { MCP, Tool, AgentToolDetail } from '@/types';
 import './ToolSelector.css';
@@ -108,6 +109,7 @@ export default function ToolSelector({ agentId }: ToolSelectorProps) {
             mcp_id: tool.mcp_id,
             is_enabled: true,
             added_at: new Date().toISOString(),
+            requires_approval: tool.requires_approval,
           },
         ]);
       }
@@ -143,6 +145,7 @@ export default function ToolSelector({ agentId }: ToolSelectorProps) {
             mcp_id: tool.mcp_id,
             is_enabled: true,
             added_at: new Date().toISOString(),
+            requires_approval: tool.requires_approval,
           });
         }
       });
@@ -188,27 +191,50 @@ export default function ToolSelector({ agentId }: ToolSelectorProps) {
         <span className="tool-selector__count">{assignedTools.length}</span>
       </div>
 
-      <div className="tool-selector__list">
-        {assignedTools.length === 0 ? (
+      {assignedTools.length === 0 ? (
+        <div className="tool-selector__list">
           <div className="tool-selector__empty">No tools attached yet</div>
-        ) : (
-          assignedTools.map((at) => (
-            <div key={at.tool_id} className="tool-selector__item tool-selector__item--assigned">
-              <div className="tool-selector__info">
-                <div className="tool-selector__name">{at.tool_name}</div>
-              </div>
-              <button
-                type="button"
-                className="tool-selector__toggle-badge tool-selector__toggle-badge--remove"
-                disabled={toggling === at.tool_id}
-                onClick={() => handleRemoveAssigned(at.tool_id)}
-              >
-                {toggling === at.tool_id ? '…' : 'remove'}
-              </button>
-            </div>
-          ))
-        )}
-      </div>
+        </div>
+      ) : (
+        <table className="tool-selector__table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Approval</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {assignedTools.map((at) => (
+              <tr key={at.tool_id}>
+                <td>
+                  <Link
+                    to={`/tools/${at.tool_id}/edit`}
+                    className="tool-selector__link"
+                  >
+                    {at.tool_name}
+                  </Link>
+                </td>
+                <td>
+                  <span className={`tool-selector__approval-badge ${at.requires_approval ? 'tool-selector__approval-badge--yes' : 'tool-selector__approval-badge--no'}`}>
+                    {at.requires_approval ? 'required' : 'auto'}
+                  </span>
+                </td>
+                <td>
+                  <button
+                    type="button"
+                    className="tool-selector__toggle-badge tool-selector__toggle-badge--remove"
+                    disabled={toggling === at.tool_id}
+                    onClick={() => handleRemoveAssigned(at.tool_id)}
+                  >
+                    {toggling === at.tool_id ? '…' : 'remove'}
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
 
       {/* ── Add tools (collapsible) ── */}
       <button

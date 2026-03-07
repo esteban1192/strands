@@ -41,6 +41,7 @@ export interface AgentToolDetail {
   mcp_id: string | null;
   is_enabled: boolean;
   added_at: string;
+  requires_approval: boolean;
 }
 
 export interface AgentInvokeRequest {

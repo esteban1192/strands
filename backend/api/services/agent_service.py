@@ -139,6 +139,7 @@ class AgentService:
                 "mcp_id": str(tool.mcp_id) if tool.mcp_id else None,
                 "is_enabled": at.is_enabled,
                 "added_at": at.added_at.isoformat(),
+                "requires_approval": tool.requires_approval,
             }
             for at, tool in rows
         ]

@@ -57,6 +57,77 @@
   box-shadow: 0 0 0 3px var(--color-primary-light);
 }
 
+/* ===== Attached-tools table ===== */
+.tool-selector__table {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  border-spacing: 0;
+  overflow: hidden;
+  background: var(--color-bg);
+  font-size: 0.85rem;
+}
+
+.tool-selector__table thead th {
+  text-align: left;
+  padding: 0.5rem 0.85rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.tool-selector__table thead th:last-child {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.tool-selector__table tbody td {
+  padding: 0.5rem 0.85rem;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: middle;
+}
+
+.tool-selector__table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.tool-selector__table tbody tr:hover {
+  background: var(--color-surface);
+}
+
+.tool-selector__link {
+  color: var(--color-primary);
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.tool-selector__link:hover {
+  text-decoration: underline;
+}
+
+.tool-selector__approval-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.12rem 0.45rem;
+  border-radius: 6px;
+}
+
+.tool-selector__approval-badge--yes {
+  color: var(--color-warning, #b45309);
+  background: var(--color-warning-bg, rgba(245, 158, 11, 0.12));
+}
+
+.tool-selector__approval-badge--no {
+  color: var(--color-success, #059669);
+  background: var(--color-success-bg, rgba(16, 185, 129, 0.12));
+}
+
 /* ===== Tool List ===== */
 .tool-selector__list {
   border: 1px solid var(--color-border);

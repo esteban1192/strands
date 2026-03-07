@@ -68,6 +68,10 @@ class ChatDetailResponse(BaseModel):
     id: uuid.UUID
     agent_id: uuid.UUID
     title: Optional[str] = None
+    task_id: Optional[uuid.UUID] = None
+    source_chat_id: Optional[uuid.UUID] = Field(
+        None, description="The parent chat that spawned this task (set when task_id is present)",
+    )
     messages: List[ChatMessageResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime

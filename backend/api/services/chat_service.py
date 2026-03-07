@@ -81,7 +81,12 @@ class ChatService:
     @staticmethod
     async def get_chat_detail(db: AsyncSession, chat_id: uuid.UUID) -> Optional[ChatDetailResponse]:
         """Get chat metadata together with all its messages (ordered by ordinal)."""
-        stmt = select(ChatModel).where(ChatModel.id == chat_id)
+        from sqlalchemy.orm import selectinload
+        stmt = (
+            select(ChatModel)
+            .options(selectinload(ChatModel.task))
+            .where(ChatModel.id == chat_id)
+        )
         result = await db.execute(stmt)
         chat = result.scalar_one_or_none()
         if not chat:
@@ -92,6 +97,8 @@ class ChatService:
             id=chat.id,
             agent_id=chat.agent_id,
             title=chat.title,
+            task_id=chat.task_id,
+            source_chat_id=chat.task.source_chat_id if chat.task else None,
             messages=messages,
             created_at=chat.created_at,
             updated_at=chat.updated_at,
@@ -102,10 +109,11 @@ class ChatService:
         db: AsyncSession,
         agent_id: uuid.UUID,
     ) -> List[ChatResponse]:
-        """List all chats for a given agent, most recent first."""
+        """List top-level chats for an agent (excludes task chats)."""
         stmt = (
             select(ChatModel)
             .where(ChatModel.agent_id == agent_id)
+            .where(ChatModel.task_id.is_(None))
             .order_by(ChatModel.updated_at.desc())
         )
         result = await db.execute(stmt)

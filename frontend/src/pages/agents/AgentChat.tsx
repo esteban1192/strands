@@ -267,6 +267,7 @@ export default function AgentChat() {
   const [subAgents, setSubAgents] = useState<AgentSubAgent[]>([]);
   const [input, setInput] = useState('');
   const [tasks, setTasks] = useState<ChatTask[]>([]);
+  const [sourceChatId, setSourceChatId] = useState<string | null>(null);
   const [thinking, setThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
@@ -388,6 +389,7 @@ export default function AgentChat() {
       .getById(id, chatId)
       .then((detail) => {
         setMessages(detail.messages);
+        setSourceChatId(detail.source_chat_id ?? null);
       })
       .catch(() => {
         setError('Failed to load chat history');
@@ -460,6 +462,7 @@ export default function AgentChat() {
     setChatId(null);
     setMessages([]);
     setTasks([]);
+    setSourceChatId(null);
     setError(null);
     setThinking(false);
     setSearchParams({}, { replace: true });
@@ -469,6 +472,7 @@ export default function AgentChat() {
     setChatId(selectedChatId);
     setMessages([]);
     setTasks([]);
+    setSourceChatId(null);
     setThinking(false);
     setSearchParams({ chatId: selectedChatId }, { replace: true });
   };
@@ -545,9 +549,20 @@ export default function AgentChat() {
           <h1>{agent.name}</h1>
           <p className="page-subtitle">{agent.model}</p>
         </div>
-        <button className="chat-new-btn" onClick={handleNewChat} title="New chat">
-          + New Chat
-        </button>
+        <div className="chat-header__actions">
+          {sourceChatId && (
+            <button
+              className="chat-parent-btn"
+              onClick={() => handleSelectChat(sourceChatId)}
+              title="Go to parent chat"
+            >
+              ← Parent
+            </button>
+          )}
+          <button className="chat-new-btn" onClick={handleNewChat} title="New chat">
+            + New Chat
+          </button>
+        </div>
       </div>
 
       <div className="chat-layout">

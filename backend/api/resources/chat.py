@@ -41,6 +41,7 @@ from api.models import (
     ChatMessageResponse,
 )
 from api.services import ChatService, TaskService
+from api.services.task_service import TERMINAL_STATUSES
 from core.agent_executor import AgentExecutor, AgentExecutionError, SUB_AGENT_TOOL_PREFIX
 from mcps.task_management.tools import CREATE_TASKS_TOOL_NAME
 from core.exceptions import MCPConnectionError
@@ -307,6 +308,47 @@ async def approve_tool_call(
     return ChatAcceptedResponse(chat_id=chat_id)
 
 
+async def _sync_task_status(db: AsyncSession, chat_id: uuid.UUID) -> None:
+    """If this chat belongs to a task, update the task status after approval/rejection."""
+    from api.db_models import ChatModel
+    from sqlalchemy import select as sa_select
+    from core.task_runner import task_runner
+
+    stmt = sa_select(ChatModel).where(ChatModel.id == chat_id)
+    result = await db.execute(stmt)
+    chat = result.scalar_one_or_none()
+
+    if not chat or not chat.task_id:
+        return
+
+    task_id = chat.task_id
+    task = await TaskService.get_task(db, task_id)
+    if not task or task.status in TERMINAL_STATUSES:
+        return
+
+    pending = await ChatService.get_pending_tool_calls(db, chat_id)
+
+    if pending:
+        if task.status != "waiting_approval":
+            await TaskService.update_status(db, task_id, "waiting_approval")
+            await db.commit()
+    else:
+        messages = await ChatService.get_messages(db, chat_id)
+        summary = ""
+        for msg in reversed(messages):
+            if msg.role == "assistant" and msg.message_type == "text":
+                summary = (msg.content.get("text", "") if isinstance(msg.content, dict) else str(msg.content))[:2000]
+                break
+        await TaskService.update_status(db, task_id, "completed", result_summary=summary)
+        await db.commit()
+
+    source_chat_id = task.source_chat_id
+    await task_runner._publish_task_update(source_chat_id)
+
+    if task_id and not pending:
+        await task_runner._on_task_finished(task_id, source_chat_id)
+
+
 async def _background_approve(
     chat_id: uuid.UUID,
     root_agent_id: uuid.UUID,
@@ -353,6 +395,8 @@ async def _background_approve(
                 "response": final_response,
                 "messages": _serialize_messages(all_messages),
             })
+
+            await _sync_task_status(db, chat_id)
 
         except _ChildPausedException:
             pass  # Already published "complete" with child's pending state
@@ -506,6 +550,8 @@ async def _background_reject(
                 "response": final_response,
                 "messages": _serialize_messages(all_messages),
             })
+
+            await _sync_task_status(db, chat_id)
 
         except (AgentExecutionError, MCPConnectionError, Exception) as exc:
             logger.exception("Background reject failed for chat %s", chat_id)

@@ -44,6 +44,8 @@ export interface ChatDetail {
   id: string;
   agent_id: string;
   title: string | null;
+  task_id: string | null;
+  source_chat_id: string | null;
   messages: ChatMessage[];
   created_at: string;
   updated_at: string;
