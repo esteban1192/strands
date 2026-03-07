@@ -58,6 +58,14 @@ from .agent_sub_agent_models import (
     AgentSubAgentCreateRequest,
 )
 
+# Task models
+from .task_models import (
+    ChatTaskResponse,
+    ChatTaskCreateRequest,
+    ChatTaskBatchCreateRequest,
+    ChatTaskBatchCreateResponse,
+)
+
 __all__ = [
     # Common
     "HealthResponse",
@@ -101,4 +109,10 @@ __all__ = [
     # Agent Sub-Agent models
     "AgentSubAgentResponse",
     "AgentSubAgentCreateRequest",
+
+    # Task models
+    "ChatTaskResponse",
+    "ChatTaskCreateRequest",
+    "ChatTaskBatchCreateRequest",
+    "ChatTaskBatchCreateResponse",
 ]

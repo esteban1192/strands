@@ -8,9 +8,10 @@ import os
 from contextlib import asynccontextmanager
 
 from api.models import HealthResponse
-from api.resources import agent, tool, mcp, tool_parameters, chat, agent_sub_agents
+from api.resources import agent, tool, mcp, tool_parameters, chat, agent_sub_agents, task
 from api.database import engine
 from core.mcp_session_cache import session_cache
+from core.task_runner import task_runner
 
 
 @asynccontextmanager
@@ -20,9 +21,13 @@ async def lifespan(app: FastAPI):
     print("Starting Strands API...")
     print("Database connection configured")
     # Note: Database tables are managed by Liquibase migrations
-    
+
+    # Recover interrupted background tasks from DB
+    await task_runner.recover()
+    print("Task runner recovery complete")
+
     yield
-    
+
     # Shutdown
     print("Shutting down Strands API...")
     session_cache.shutdown()
@@ -55,6 +60,7 @@ app.include_router(mcp.router)
 app.include_router(tool_parameters.router)
 app.include_router(chat.router)
 app.include_router(agent_sub_agents.router)
+app.include_router(task.router)
 
 # Basic health endpoints
 @app.get("/", response_model=HealthResponse)

@@ -138,12 +138,16 @@ class ChatModel(Base):
 
     id: Mapped[UUID] = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     agent_id: Mapped[UUID] = Column(UUID(as_uuid=True), ForeignKey("strands.agents.id"), nullable=False)
+    task_id: Mapped[Optional[UUID]] = Column(UUID(as_uuid=True), ForeignKey("strands.chat_tasks.id"), nullable=True)
     title: Mapped[Optional[str]] = Column(String(255), nullable=True)
     created_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     agent: Mapped["AgentModel"] = relationship("AgentModel", back_populates="chats")
+    task: Mapped[Optional["ChatTaskModel"]] = relationship(
+        "ChatTaskModel", back_populates="chat", foreign_keys=[task_id],
+    )
     messages: Mapped[List["ChatMessageModel"]] = relationship(
         "ChatMessageModel", back_populates="chat", cascade="all, delete-orphan",
         order_by="ChatMessageModel.ordinal",
@@ -247,4 +251,48 @@ class ChatDelegationModel(Base):
     )
     child_delegations: Mapped[List["ChatDelegationModel"]] = relationship(
         "ChatDelegationModel", back_populates="parent_delegation",
+    )
+
+
+class ChatTaskModel(Base):
+    """A background task spawned by an agent during a chat turn.
+
+    Each task runs as an isolated agent invocation in its own child chat.
+    Tasks can nest via ``parent_task_id`` (sub-tasks).
+
+    ``source_chat_id`` is always set at creation time (the originating
+    chat).  ``message_id`` is resolved *after* the agent turn completes
+    by matching ``tool_use_id`` to the persisted tool-call message.
+    """
+    __tablename__ = "chat_tasks"
+    __table_args__ = {"schema": "strands"}
+
+    id: Mapped[UUID] = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    source_chat_id: Mapped[UUID] = Column(UUID(as_uuid=True), ForeignKey("strands.chats.id"), nullable=False)
+    message_id: Mapped[Optional[UUID]] = Column(UUID(as_uuid=True), ForeignKey("strands.chat_messages.id"), nullable=True)
+    tool_use_id: Mapped[Optional[str]] = Column(String(255), nullable=True)
+    parent_task_id: Mapped[Optional[UUID]] = Column(UUID(as_uuid=True), ForeignKey("strands.chat_tasks.id"), nullable=True)
+    agent_id: Mapped[UUID] = Column(UUID(as_uuid=True), ForeignKey("strands.agents.id"), nullable=False)
+    instruction: Mapped[str] = Column(Text, nullable=False)
+    status: Mapped[str] = Column(String(50), nullable=False, default="pending")
+    result_summary: Mapped[Optional[str]] = Column(Text, nullable=True)
+    error: Mapped[Optional[str]] = Column(Text, nullable=True)
+    created_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now())
+    started_at: Mapped[Optional[datetime]] = Column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    source_chat: Mapped["ChatModel"] = relationship("ChatModel", foreign_keys=[source_chat_id])
+    message: Mapped[Optional["ChatMessageModel"]] = relationship("ChatMessageModel")
+    agent: Mapped["AgentModel"] = relationship("AgentModel")
+    parent_task: Mapped[Optional["ChatTaskModel"]] = relationship(
+        "ChatTaskModel", remote_side="ChatTaskModel.id",
+        back_populates="sub_tasks",
+    )
+    sub_tasks: Mapped[List["ChatTaskModel"]] = relationship(
+        "ChatTaskModel", back_populates="parent_task",
+    )
+    chat: Mapped[Optional["ChatModel"]] = relationship(
+        "ChatModel", back_populates="task", uselist=False,
+        foreign_keys="ChatModel.task_id",
     )

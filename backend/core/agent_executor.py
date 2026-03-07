@@ -247,6 +247,17 @@ class AgentExecutor:
                 AgentExecutor._build_sub_agent_tool(vt_name, child)
             )
 
+        # 2d. Build task management tools (available to all agents when
+        #     invoked within a chat context).
+        task_tool_functions = []
+        if chat_id is not None:
+            try:
+                loop = asyncio.get_running_loop()
+                from mcps.task_management.tools import build_task_tools
+                task_tool_functions = build_task_tools(loop, chat_id, agent_id)
+            except Exception as exc:
+                logger.warning("Could not build task tools: %s", exc)
+
         # An agent must have at least one tool (MCP or sub-agent)
         if not clients and not sub_agent_tool_functions:
             raise AgentExecutionError(
@@ -255,7 +266,7 @@ class AgentExecutor:
 
         # 4. Create Strands Agent and run the prompt
         # The Agent handles MCPClient lifecycle (start/stop) internally.
-        all_tools: list = clients + sub_agent_tool_functions
+        all_tools: list = clients + sub_agent_tool_functions + task_tool_functions
         prior_messages = history or []
         history_len = len(prior_messages)
 

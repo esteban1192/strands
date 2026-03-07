@@ -40,7 +40,7 @@ from api.models import (
     ChatAcceptedResponse,
     ChatMessageResponse,
 )
-from api.services import ChatService
+from api.services import ChatService, TaskService
 from core.agent_executor import AgentExecutor, AgentExecutionError, SUB_AGENT_TOOL_PREFIX
 from core.exceptions import MCPConnectionError
 from core.mcp_manager import MCPManager
@@ -186,6 +186,10 @@ async def _background_invoke(
                     tools_requiring_approval=result.tools_requiring_approval,
                     agent_id=agent_id,
                 )
+
+            # Link any tasks created during this turn to their message
+            await TaskService.resolve_message_ids(db, chat_id)
+            await db.commit()
 
             pending = await ChatService.get_pending_tool_calls(db, chat_id, agent_id=agent_id)
             if not pending and not result.cancelled_tool_use_ids:

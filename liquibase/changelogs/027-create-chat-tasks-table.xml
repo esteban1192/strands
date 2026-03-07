@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="027-create-chat-tasks" author="system" context="all">
+        <comment>
+            Create chat_tasks table for background task execution.
+            Tasks are spawned by an agent during a chat turn, each running
+            as an isolated investigation in its own child chat.  Tasks can
+            nest (sub-tasks via parent_task_id).
+
+            source_chat_id is the non-null anchor (always known at creation
+            time).  message_id is filled in after the agent turn completes
+            and messages are persisted (matched via tool_use_id).
+        </comment>
+
+        <createTable schemaName="strands" tableName="chat_tasks">
+            <column name="id" type="UUID" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <!-- The originating chat (always known at creation time) -->
+            <column name="source_chat_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <!-- Resolved after agent turn — the assistant message that
+                 contains the create_tasks tool call -->
+            <column name="message_id" type="UUID">
+                <constraints nullable="true"/>
+            </column>
+            <!-- The toolUseId from the create_tasks call, used to resolve
+                 message_id post-hoc -->
+            <column name="tool_use_id" type="VARCHAR(255)">
+                <constraints nullable="true"/>
+            </column>
+            <!-- Self-reference for sub-tasks; NULL for top-level tasks -->
+            <column name="parent_task_id" type="UUID">
+                <constraints nullable="true"/>
+            </column>
+            <column name="agent_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="instruction" type="TEXT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="status" type="VARCHAR(50)" defaultValue="pending">
+                <constraints nullable="false"/>
+            </column>
+            <column name="result_summary" type="TEXT">
+                <constraints nullable="true"/>
+            </column>
+            <column name="error" type="TEXT">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="started_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="true"/>
+            </column>
+            <column name="completed_at" type="TIMESTAMP WITH TIME ZONE">
+                <constraints nullable="true"/>
+            </column>
+        </createTable>
+
+        <!-- Foreign keys -->
+        <addForeignKeyConstraint
+            baseTableSchemaName="strands" baseTableName="chat_tasks" baseColumnNames="source_chat_id"
+            referencedTableSchemaName="strands" referencedTableName="chats" referencedColumnNames="id"
+            constraintName="fk_chat_tasks_source_chat"
+            onDelete="CASCADE" onUpdate="CASCADE"/>
+
+        <addForeignKeyConstraint
+            baseTableSchemaName="strands" baseTableName="chat_tasks" baseColumnNames="message_id"
+            referencedTableSchemaName="strands" referencedTableName="chat_messages" referencedColumnNames="id"
+            constraintName="fk_chat_tasks_message"
+            onDelete="SET NULL" onUpdate="CASCADE"/>
+
+        <addForeignKeyConstraint
+            baseTableSchemaName="strands" baseTableName="chat_tasks" baseColumnNames="parent_task_id"
+            referencedTableSchemaName="strands" referencedTableName="chat_tasks" referencedColumnNames="id"
+            constraintName="fk_chat_tasks_parent"
+            onDelete="CASCADE" onUpdate="CASCADE"/>
+
+        <addForeignKeyConstraint
+            baseTableSchemaName="strands" baseTableName="chat_tasks" baseColumnNames="agent_id"
+            referencedTableSchemaName="strands" referencedTableName="agents" referencedColumnNames="id"
+            constraintName="fk_chat_tasks_agent"
+            onDelete="CASCADE" onUpdate="CASCADE"/>
+
+        <!-- Check constraint on status -->
+        <sql>
+            ALTER TABLE strands.chat_tasks ADD CONSTRAINT ck_chat_tasks_status
+            CHECK (status IN ('pending', 'running', 'waiting_approval', 'completed', 'failed', 'cancelled'));
+        </sql>
+
+        <!-- Indexes -->
+        <createIndex schemaName="strands" tableName="chat_tasks" indexName="idx_chat_tasks_source_chat_id">
+            <column name="source_chat_id"/>
+        </createIndex>
+        <createIndex schemaName="strands" tableName="chat_tasks" indexName="idx_chat_tasks_message_id">
+            <column name="message_id"/>
+        </createIndex>
+        <createIndex schemaName="strands" tableName="chat_tasks" indexName="idx_chat_tasks_parent_task_id">
+            <column name="parent_task_id"/>
+        </createIndex>
+        <createIndex schemaName="strands" tableName="chat_tasks" indexName="idx_chat_tasks_status">
+            <column name="status"/>
+        </createIndex>
+
+        <rollback>
+            <dropTable schemaName="strands" tableName="chat_tasks"/>
+        </rollback>
+    </changeSet>
+
+    <!-- Add task_id column to chats table so a chat can be a task's thread -->
+    <changeSet id="027-add-task-id-to-chats" author="system" context="all">
+        <comment>
+            Add nullable task_id to chats.  When set, the chat is the
+            conversation thread for a background task.
+        </comment>
+
+        <addColumn schemaName="strands" tableName="chats">
+            <column name="task_id" type="UUID">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+
+        <addForeignKeyConstraint
+            baseTableSchemaName="strands" baseTableName="chats" baseColumnNames="task_id"
+            referencedTableSchemaName="strands" referencedTableName="chat_tasks" referencedColumnNames="id"
+            constraintName="fk_chats_task"
+            onDelete="SET NULL" onUpdate="CASCADE"/>
+
+        <createIndex schemaName="strands" tableName="chats" indexName="idx_chats_task_id">
+            <column name="task_id"/>
+        </createIndex>
+
+        <rollback>
+            <dropIndex schemaName="strands" tableName="chats" indexName="idx_chats_task_id"/>
+            <dropColumn schemaName="strands" tableName="chats" columnName="task_id"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>
