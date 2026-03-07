@@ -622,6 +622,10 @@
   border-bottom: none;
 }
 
+.task-table__row--clickable {
+  cursor: pointer;
+}
+
 .task-table__row:hover {
   background: var(--color-hover);
 }

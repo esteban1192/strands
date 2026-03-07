@@ -142,7 +142,15 @@ function TaskStatusBadge({ status }: { status: string }) {
   );
 }
 
-function TaskTable({ tasks, onCancel }: { tasks: ChatTask[]; onCancel?: (taskId: string) => void }) {
+function TaskTable({
+  tasks,
+  onCancel,
+  onTaskClick,
+}: {
+  tasks: ChatTask[];
+  onCancel?: (taskId: string) => void;
+  onTaskClick?: (task: ChatTask) => void;
+}) {
   if (!tasks.length) return null;
 
   const canCancel = (t: ChatTask) =>
@@ -156,14 +164,18 @@ function TaskTable({ tasks, onCancel }: { tasks: ChatTask[]; onCancel?: (taskId:
       </div>
       <div className="task-table__body">
         {tasks.map((task) => (
-          <div key={task.id} className="task-table__row">
+          <div
+            key={task.id}
+            className={`task-table__row${task.chat_id ? ' task-table__row--clickable' : ''}`}
+            onClick={() => task.chat_id && onTaskClick?.(task)}
+          >
             <div className="task-table__instruction">{task.instruction}</div>
             <div className="task-table__right">
               <TaskStatusBadge status={task.status} />
               {canCancel(task) && onCancel && (
                 <button
                   className="task-table__cancel-btn"
-                  onClick={() => onCancel(task.id)}
+                  onClick={(e) => { e.stopPropagation(); onCancel(task.id); }}
                   title="Cancel task"
                 >
                   ×
@@ -579,7 +591,15 @@ export default function AgentChat() {
                   <div key={msg.id} className="chat-message chat-message--assistant">
                     <span className="chat-message__role">{agent.name}</span>
                     <div className="chat-message__bubble">
-                      <TaskTable tasks={tasks} onCancel={handleCancelTask} />
+                      <TaskTable
+                        tasks={tasks}
+                        onCancel={handleCancelTask}
+                        onTaskClick={(task) => {
+                          if (task.chat_id) {
+                            navigate(`/agents/${task.agent_id}/chat?chatId=${task.chat_id}`);
+                          }
+                        }}
+                      />
                     </div>
                   </div>
                 );
