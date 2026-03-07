@@ -3,7 +3,7 @@ Tool endpoints for the Strands API
 """
 import uuid
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi import APIRouter, HTTPException, Depends, Query, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models import (
@@ -21,10 +21,11 @@ async def get_tools(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     mcp_id: Optional[uuid.UUID] = Query(None, description="Filter by MCP ID"),
+    search: Optional[str] = Query(None, description="Search by tool name or description"),
     db: AsyncSession = Depends(get_db),
 ):
     """Get tools with pagination and optional MCP filter"""
-    return await ToolService.get_all(db, page=page, page_size=page_size, mcp_id=mcp_id)
+    return await ToolService.get_all(db, page=page, page_size=page_size, mcp_id=mcp_id, search=search)
 
 
 @router.post("", response_model=ToolResponse, status_code=201)
@@ -69,3 +70,13 @@ async def delete_tool(tool_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     if not success:
         raise HTTPException(status_code=404, detail="Tool not found")
     return {"message": f"Tool {tool_id} deleted successfully"}
+
+
+@router.post("/bulk-delete")
+async def bulk_delete_tools(
+    tool_ids: List[uuid.UUID] = Body(..., embed=True),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete multiple tools at once"""
+    deleted = await ToolService.bulk_delete(db, tool_ids)
+    return {"deleted": deleted}

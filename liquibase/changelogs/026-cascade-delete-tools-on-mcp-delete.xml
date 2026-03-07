@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="026-cascade-delete-tools-on-mcp-delete" author="system" context="all">
+        <comment>Change tools.mcp_id FK from SET NULL to CASCADE so tools are deleted when their MCP is removed</comment>
+
+        <dropForeignKeyConstraint
+            baseTableName="tools"
+            baseTableSchemaName="strands"
+            constraintName="fk_tools_mcp_id"/>
+
+        <addForeignKeyConstraint
+            baseTableName="tools"
+            baseColumnNames="mcp_id"
+            referencedTableName="mcps"
+            referencedColumnNames="id"
+            constraintName="fk_tools_mcp_id"
+            baseTableSchemaName="strands"
+            referencedTableSchemaName="strands"
+            onDelete="CASCADE"
+            onUpdate="CASCADE"/>
+
+        <rollback>
+            <dropForeignKeyConstraint
+                baseTableName="tools"
+                baseTableSchemaName="strands"
+                constraintName="fk_tools_mcp_id"/>
+            <addForeignKeyConstraint
+                baseTableName="tools"
+                baseColumnNames="mcp_id"
+                referencedTableName="mcps"
+                referencedColumnNames="id"
+                constraintName="fk_tools_mcp_id"
+                baseTableSchemaName="strands"
+                referencedTableSchemaName="strands"
+                onDelete="SET NULL"
+                onUpdate="CASCADE"/>
+        </rollback>
+    </changeSet>
+
+    <changeSet id="026-cleanup-orphaned-tools" author="system" context="all">
+        <comment>Remove any tools orphaned by previous SET NULL behavior</comment>
+
+        <sql>DELETE FROM strands.tools WHERE mcp_id IS NULL;</sql>
+
+        <rollback>
+            <!-- No meaningful rollback for data cleanup -->
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

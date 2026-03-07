@@ -4,7 +4,7 @@ import type { Tool, ToolCreateRequest, ToolUpdateRequest, PaginatedToolsResponse
 const BASE = '/tools';
 
 export const toolApi = {
-  getAll: (params?: { page?: number; page_size?: number; mcp_id?: string }) =>
+  getAll: (params?: { page?: number; page_size?: number; mcp_id?: string; search?: string }) =>
     apiClient.get<PaginatedToolsResponse>(BASE, { params }).then((r) => r.data),
 
   getById: (id: string) =>
@@ -18,4 +18,7 @@ export const toolApi = {
 
   delete: (id: string) =>
     apiClient.delete(`${BASE}/${id}`).then((r) => r.data),
+
+  bulkDelete: (toolIds: string[]) =>
+    apiClient.post<{ deleted: number }>(`${BASE}/bulk-delete`, { tool_ids: toolIds }).then((r) => r.data),
 };

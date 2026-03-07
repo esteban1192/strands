@@ -20,7 +20,9 @@ export default function ToolSelector({ agentId }: ToolSelectorProps) {
   const [toggling, setToggling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState('');
   const [addToolsOpen, setAddToolsOpen] = useState(false);
+  const [selectingAll, setSelectingAll] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,6 +55,7 @@ export default function ToolSelector({ agentId }: ToolSelectorProps) {
     setLoadingTools(true);
     setError(null);
     setPage(1);
+    setSearchQuery('');
     try {
       const list = await mcpApi.getTools(mcpId);
       setTools(list);
@@ -73,8 +76,16 @@ export default function ToolSelector({ agentId }: ToolSelectorProps) {
     [assignedTools],
   );
 
-  const totalPages = Math.max(1, Math.ceil(tools.length / PAGE_SIZE));
-  const paginatedTools = tools.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const filteredTools = useMemo(() => {
+    if (!searchQuery.trim()) return tools;
+    const q = searchQuery.toLowerCase();
+    return tools.filter(
+      (t) => t.name.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q),
+    );
+  }, [tools, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTools.length / PAGE_SIZE));
+  const paginatedTools = filteredTools.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const handleToggle = async (tool: Tool) => {
     if (toggling) return;
@@ -104,6 +115,50 @@ export default function ToolSelector({ agentId }: ToolSelectorProps) {
       setError(err instanceof Error ? err.message : 'Failed to update tool assignment');
     } finally {
       setToggling(null);
+    }
+  };
+
+  const unassignedFiltered = useMemo(
+    () => filteredTools.filter((t) => !assignedIds.has(t.id)),
+    [filteredTools, assignedIds],
+  );
+
+  const handleSelectAll = async () => {
+    if (selectingAll || unassignedFiltered.length === 0) return;
+    setSelectingAll(true);
+    setError(null);
+
+    try {
+      const results = await Promise.allSettled(
+        unassignedFiltered.map((tool) => agentApi.addTool(agentId, tool.id)),
+      );
+
+      const added: AgentToolDetail[] = [];
+      results.forEach((result, i) => {
+        if (result.status === 'fulfilled') {
+          const tool = unassignedFiltered[i];
+          added.push({
+            tool_id: tool.id,
+            tool_name: tool.name,
+            mcp_id: tool.mcp_id,
+            is_enabled: true,
+            added_at: new Date().toISOString(),
+          });
+        }
+      });
+
+      if (added.length > 0) {
+        setAssignedTools((prev) => [...prev, ...added]);
+      }
+
+      const failCount = results.filter((r) => r.status === 'rejected').length;
+      if (failCount > 0) {
+        setError(`Failed to add ${failCount} of ${unassignedFiltered.length} tools`);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to add tools');
+    } finally {
+      setSelectingAll(false);
     }
   };
 
@@ -183,14 +238,57 @@ export default function ToolSelector({ agentId }: ToolSelectorProps) {
             </select>
           </div>
 
+          <div className="tool-selector__search">
+            <input
+              type="text"
+              placeholder="Search tools…"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+              }}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="tool-selector__search-clear"
+                onClick={() => { setSearchQuery(''); setPage(1); }}
+                aria-label="Clear search"
+              >
+                ×
+              </button>
+            )}
+          </div>
+
           {error && <div className="tool-selector__error">{error}</div>}
+
+          {!loadingTools && filteredTools.length > 0 && (
+            <div className="tool-selector__bulk-actions">
+              <button
+                type="button"
+                className="tool-selector__select-all"
+                disabled={selectingAll || unassignedFiltered.length === 0}
+                onClick={handleSelectAll}
+              >
+                {selectingAll
+                  ? `Adding ${unassignedFiltered.length} tools…`
+                  : unassignedFiltered.length === 0
+                    ? 'All selected'
+                    : `Select all (${unassignedFiltered.length})`}
+              </button>
+            </div>
+          )}
 
           <div className="tool-selector__list">
             {loadingTools ? (
               <div className="tool-selector__status">Loading tools…</div>
             ) : paginatedTools.length === 0 ? (
               <div className="tool-selector__empty">
-                {selectedMcpId ? 'No tools found for this MCP' : 'Select an MCP to see tools'}
+                {searchQuery
+                  ? 'No tools match your search'
+                  : selectedMcpId
+                    ? 'No tools found for this MCP'
+                    : 'Select an MCP to see tools'}
               </div>
             ) : (
               paginatedTools.map((tool) => {
@@ -239,13 +337,13 @@ export default function ToolSelector({ agentId }: ToolSelectorProps) {
 
           {totalPages > 1 && (
             <div className="tool-selector__pagination">
-              <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+              <button type="button" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
                 ← Prev
               </button>
               <span className="tool-selector__page-info">
                 {page} / {totalPages}
               </span>
-              <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
+              <button type="button" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>
                 Next →
               </button>
             </div>

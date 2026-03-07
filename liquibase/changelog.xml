@@ -37,5 +37,6 @@
     <include file="changelogs/023-create-agent-sub-agents-table.xml"/>
     <include file="changelogs/024-add-agent-id-to-chat-messages.xml"/>
     <include file="changelogs/025-create-chat-delegations-table.xml"/>
+    <include file="changelogs/026-cascade-delete-tools-on-mcp-delete.xml"/>
 
 </databaseChangeLog>

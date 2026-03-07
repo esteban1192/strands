@@ -40,20 +40,24 @@ class ToolService:
         page: int = 1,
         page_size: int = 20,
         mcp_id: Optional[uuid.UUID] = None,
+        search: Optional[str] = None,
     ) -> PaginatedToolsResponse:
-        """Get tools with pagination and optional MCP filter"""
-        # Base filter
+        """Get tools with pagination, optional MCP filter, and search"""
         conditions = []
         if mcp_id is not None:
             conditions.append(ToolModel.mcp_id == mcp_id)
+        if search:
+            pattern = f"%{search}%"
+            conditions.append(
+                sa_func.coalesce(ToolModel.name, "").ilike(pattern)
+                | sa_func.coalesce(ToolModel.description, "").ilike(pattern)
+            )
 
-        # Count
         count_stmt = select(sa_func.count(ToolModel.id))
         for cond in conditions:
             count_stmt = count_stmt.where(cond)
         total = (await db.execute(count_stmt)).scalar() or 0
 
-        # Query
         stmt = (
             select(ToolModel)
             .options(selectinload(ToolModel.tool_parameters), joinedload(ToolModel.mcp))
@@ -139,3 +143,13 @@ class ToolService:
         result = await db.execute(stmt)
         await db.commit()
         return result.rowcount > 0
+
+    @staticmethod
+    async def bulk_delete(db: AsyncSession, tool_ids: List[uuid.UUID]) -> int:
+        """Delete multiple tools, returns number deleted"""
+        if not tool_ids:
+            return 0
+        stmt = delete(ToolModel).where(ToolModel.id.in_(tool_ids))
+        result = await db.execute(stmt)
+        await db.commit()
+        return result.rowcount
