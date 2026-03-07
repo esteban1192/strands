@@ -9,6 +9,7 @@ Responsibilities:
   - Manage MCP client lifecycle (start/stop)
   - Gate tool execution behind user approval via ToolApprovalHook
 """
+import asyncio
 import logging
 import re
 import uuid
@@ -282,7 +283,7 @@ class AgentExecutor:
                 len(sub_agent_tool_functions), history_len,
             )
 
-            result = agent(prompt)
+            result = await asyncio.to_thread(agent, prompt)
 
             # Extract the full conversation messages (user + assistant turns
             # including tool_use / tool_result blocks)

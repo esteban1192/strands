@@ -54,3 +54,15 @@ export interface ChatSendMessageResponse {
   response: string;
   messages: ChatMessage[];
 }
+
+export interface ChatAcceptedResponse {
+  chat_id: string;
+  status: 'processing';
+}
+
+export interface ChatSSEEvent {
+  type: 'thinking' | 'complete' | 'error';
+  response?: string;
+  messages?: ChatMessage[];
+  message?: string;
+}

@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { Chat, ChatDetail, ChatSendMessageResponse } from '@/types';
+import type { Chat, ChatDetail, ChatAcceptedResponse } from '@/types';
 
 export const chatApi = {
   /** List all chats for an agent (metadata only, most recent first). */
@@ -10,35 +10,39 @@ export const chatApi = {
   getById: (agentId: string, chatId: string) =>
     apiClient.get<ChatDetail>(`/agents/${agentId}/chats/${chatId}`).then((r) => r.data),
 
-  /** Create a new chat by sending the first message. */
+  /** Create a new chat by sending the first message.  Returns 202. */
   create: (agentId: string, prompt: string) =>
     apiClient
-      .post<ChatSendMessageResponse>(`/agents/${agentId}/chats`, { prompt })
+      .post<ChatAcceptedResponse>(`/agents/${agentId}/chats`, { prompt })
       .then((r) => r.data),
 
-  /** Send a follow-up message in an existing chat. */
+  /** Send a follow-up message in an existing chat.  Returns 202. */
   sendMessage: (agentId: string, chatId: string, prompt: string) =>
     apiClient
-      .post<ChatSendMessageResponse>(`/agents/${agentId}/chats/${chatId}/messages`, { prompt })
+      .post<ChatAcceptedResponse>(`/agents/${agentId}/chats/${chatId}/messages`, { prompt })
       .then((r) => r.data),
 
   /** Delete a chat and all its messages. */
   delete: (agentId: string, chatId: string) =>
     apiClient.delete(`/agents/${agentId}/chats/${chatId}`).then((r) => r.data),
 
-  /** Approve a pending tool call. */
+  /** Approve a pending tool call.  Returns 202. */
   approveToolCall: (agentId: string, chatId: string, messageId: string) =>
     apiClient
-      .post<ChatSendMessageResponse>(
+      .post<ChatAcceptedResponse>(
         `/agents/${agentId}/chats/${chatId}/messages/${messageId}/approve`,
       )
       .then((r) => r.data),
 
-  /** Reject a pending tool call. */
+  /** Reject a pending tool call.  Returns 202. */
   rejectToolCall: (agentId: string, chatId: string, messageId: string) =>
     apiClient
-      .post<ChatSendMessageResponse>(
+      .post<ChatAcceptedResponse>(
         `/agents/${agentId}/chats/${chatId}/messages/${messageId}/reject`,
       )
       .then((r) => r.data),
+
+  /** Build the SSE events URL for a chat. */
+  eventsUrl: (agentId: string, chatId: string) =>
+    `/api/agents/${agentId}/chats/${chatId}/events`,
 };

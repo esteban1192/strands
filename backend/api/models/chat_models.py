@@ -86,3 +86,10 @@ class ChatSendMessageResponse(BaseModel):
         default_factory=list,
         description="All messages in the chat after this turn",
     )
+
+
+class ChatAcceptedResponse(BaseModel):
+    """Returned immediately when a message/approval/rejection is accepted for
+    async processing.  The actual result arrives via the SSE channel."""
+    chat_id: uuid.UUID
+    status: str = "processing"

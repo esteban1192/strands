@@ -105,7 +105,6 @@ function ToolResultContent({ content, status }: { content: { text?: string }[]; 
 
   if (!text) return null;
 
-  // Show a short preview (first 120 chars) when collapsed
   const preview = text.length > 120 ? text.slice(0, 120) + '…' : text;
 
   return (
@@ -143,11 +142,9 @@ function MessageBubble({
   isProcessing?: boolean;
 }) {
   const block = msg.content;
-  // For tool_result messages (role="user" in Strands), display as assistant
   const displayRole = msg.message_type === 'tool_result' ? 'assistant' : msg.role;
   const isPending = msg.message_type === 'tool_call' && !msg.is_approved;
 
-  // Is this message from a sub-agent?
   const isSubAgentMsg = msg.agent_id != null && msg.agent_id !== parentAgentId;
   const resolvedName = displayRole === 'user'
     ? 'You'
@@ -199,7 +196,7 @@ export default function AgentChat() {
   const [chatList, setChatList] = useState<Chat[]>([]);
   const [subAgents, setSubAgents] = useState<AgentSubAgent[]>([]);
   const [input, setInput] = useState('');
-  const [sending, setSending] = useState(false);
+  const [thinking, setThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
   const [processingApproval, setProcessingApproval] = useState<string | null>(null);
@@ -213,7 +210,52 @@ export default function AgentChat() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, sending, scrollToBottom]);
+  }, [messages, thinking, scrollToBottom]);
+
+  // ---- SSE subscription for real-time agent results ----
+  useEffect(() => {
+    if (!id || !chatId) return;
+
+    const url = chatApi.eventsUrl(id, chatId);
+    const es = new EventSource(url);
+
+    es.addEventListener('thinking', () => {
+      setThinking(true);
+    });
+
+    es.addEventListener('complete', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.messages) {
+          setMessages(data.messages);
+        }
+      } catch {
+        // Ignore malformed payloads
+      }
+      setThinking(false);
+      setProcessingApproval(null);
+      inputRef.current?.focus();
+    });
+
+    es.addEventListener('error', (e: Event) => {
+      // SSE spec: "error" is both a named event and the reconnect signal.
+      // Only surface our custom "error" events (MessageEvent with data).
+      if (e instanceof MessageEvent && e.data) {
+        try {
+          const data = JSON.parse(e.data);
+          setError(data.message || 'An error occurred');
+        } catch {
+          setError('An error occurred');
+        }
+        setThinking(false);
+        setProcessingApproval(null);
+      }
+    });
+
+    return () => {
+      es.close();
+    };
+  }, [id, chatId]);
 
   // Load chat list for this agent
   useEffect(() => {
@@ -227,23 +269,18 @@ export default function AgentChat() {
     agentSubAgentApi.list(id).then(setSubAgents).catch(() => {});
   }, [id]);
 
-  // Build a mapping: agent_id → agent_name for quick lookup
   const agentNameMap: Record<string, string> = {};
   for (const sa of subAgents) {
     agentNameMap[sa.child_agent_id] = sa.child_agent_name;
   }
 
-  // Determine if a sub-agent delegation tool call has an active child
-  // (approved but the child still has pending tool calls).
   const hasActiveChildDelegation = useCallback(
     (toolName: string): boolean => {
-      // Find the matching sub-agent
       const sa = subAgents.find(
         (s) => `invoke_agent_${s.child_agent_name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}` === toolName
           || toolName.startsWith('invoke_agent_'),
       );
       if (!sa) return false;
-      // Check if any messages from this child have pending tool calls
       return messages.some(
         (m) =>
           m.agent_id === sa.child_agent_id &&
@@ -254,7 +291,7 @@ export default function AgentChat() {
     [subAgents, messages],
   );
 
-  // If a chatId is present (from URL or state), load its messages
+  // Load messages when switching to an existing chat
   useEffect(() => {
     if (!id || !chatId) return;
     setLoadingChat(true);
@@ -270,7 +307,6 @@ export default function AgentChat() {
       .finally(() => setLoadingChat(false));
   }, [id, chatId]);
 
-  // Auto-resize textarea
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
     const el = e.target;
@@ -280,13 +316,12 @@ export default function AgentChat() {
 
   const handleSend = async () => {
     const prompt = input.trim();
-    if (!prompt || sending || !id) return;
+    if (!prompt || thinking || !id) return;
 
     setInput('');
     setError(null);
     if (inputRef.current) inputRef.current.style.height = 'auto';
 
-    // Optimistic user bubble
     const optimisticMsg: ChatMessage = {
       id: crypto.randomUUID(),
       chat_id: chatId ?? '',
@@ -301,30 +336,25 @@ export default function AgentChat() {
       tool_result: null,
     };
     setMessages((prev) => [...prev, optimisticMsg]);
-    setSending(true);
+    setThinking(true);
 
     try {
-      let result;
       if (!chatId) {
-        // First message — create a new chat
-        result = await chatApi.create(id, prompt);
+        const result = await chatApi.create(id, prompt);
         setChatId(result.chat_id);
         setSearchParams({ chatId: result.chat_id }, { replace: true });
+        // SSE subscription will be established by the useEffect above
+        // once chatId state updates.  The event_bus buffers the latest
+        // event so we won't miss the result.
       } else {
-        // Follow-up message — send to existing chat
-        result = await chatApi.sendMessage(id, chatId, prompt);
+        await chatApi.sendMessage(id, chatId, prompt);
+        // Result arrives via SSE
       }
-
-      // Replace with the authoritative server messages
-      setMessages(result.messages);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Failed to get response';
+      const message = err instanceof Error ? err.message : 'Failed to send message';
       setError(message);
-      // Remove optimistic message on error
       setMessages((prev) => prev.filter((m) => m.id !== optimisticMsg.id));
-    } finally {
-      setSending(false);
-      inputRef.current?.focus();
+      setThinking(false);
     }
   };
 
@@ -339,12 +369,14 @@ export default function AgentChat() {
     setChatId(null);
     setMessages([]);
     setError(null);
+    setThinking(false);
     setSearchParams({}, { replace: true });
   };
 
   const handleSelectChat = (selectedChatId: string) => {
     setChatId(selectedChatId);
     setMessages([]);
+    setThinking(false);
     setSearchParams({ chatId: selectedChatId }, { replace: true });
   };
 
@@ -365,14 +397,15 @@ export default function AgentChat() {
   const handleApproveToolCall = async (messageId: string) => {
     if (!id || !chatId) return;
     setProcessingApproval(messageId);
+    setThinking(true);
     setError(null);
     try {
-      const result = await chatApi.approveToolCall(id, chatId, messageId);
-      setMessages(result.messages);
+      await chatApi.approveToolCall(id, chatId, messageId);
+      // Result arrives via SSE
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to approve tool call';
       setError(message);
-    } finally {
+      setThinking(false);
       setProcessingApproval(null);
     }
   };
@@ -380,14 +413,15 @@ export default function AgentChat() {
   const handleRejectToolCall = async (messageId: string) => {
     if (!id || !chatId) return;
     setProcessingApproval(messageId);
+    setThinking(true);
     setError(null);
     try {
-      const result = await chatApi.rejectToolCall(id, chatId, messageId);
-      setMessages(result.messages);
+      await chatApi.rejectToolCall(id, chatId, messageId);
+      // Result arrives via SSE
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to reject tool call';
       setError(message);
-    } finally {
+      setThinking(false);
       setProcessingApproval(null);
     }
   };
@@ -412,7 +446,6 @@ export default function AgentChat() {
       </div>
 
       <div className="chat-layout">
-        {/* Sidebar with chat history */}
         {chatList.length > 0 && (
           <aside className="chat-sidebar">
             <h3 className="chat-sidebar__title">History</h3>
@@ -441,7 +474,7 @@ export default function AgentChat() {
           <div className="chat-messages">
             {loadingChat && <LoadingSpinner />}
 
-            {!loadingChat && messages.length === 0 && !sending && (
+            {!loadingChat && messages.length === 0 && !thinking && (
               <div className="chat-messages-empty">
                 Send a message to start chatting with {agent.name}
               </div>
@@ -461,7 +494,7 @@ export default function AgentChat() {
               />
             ))}
 
-            {sending && (
+            {thinking && (
               <div className="chat-thinking">
                 <div className="chat-thinking__dots">
                   <span className="chat-thinking__dot" />
@@ -485,15 +518,15 @@ export default function AgentChat() {
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              disabled={sending}
+              disabled={thinking}
               rows={1}
             />
             <button
               className="chat-send-btn"
               onClick={handleSend}
-              disabled={sending || !input.trim()}
+              disabled={thinking || !input.trim()}
             >
-              {sending ? 'Sending…' : 'Send'}
+              {thinking ? 'Sending…' : 'Send'}
             </button>
           </div>
         </div>
