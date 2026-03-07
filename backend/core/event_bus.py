@@ -51,7 +51,10 @@ class EventBus:
             channel = self._channels.get(chat_id)
             if channel:
                 channel.subscribers.discard(queue)
-                if not channel.subscribers:
+                # Only delete the channel when there are no subscribers
+                # AND no buffered event.  A non-empty buffer must survive
+                # so reconnecting subscribers can pick it up.
+                if not channel.subscribers and channel.last_event is None:
                     del self._channels[chat_id]
 
     async def publish(self, chat_id: uuid.UUID, event: Dict[str, Any]) -> None:
@@ -66,11 +69,16 @@ class EventBus:
                     logger.warning("Subscriber queue full for chat %s, dropping event", chat_id)
 
     async def clear_buffer(self, chat_id: uuid.UUID) -> None:
-        """Remove the buffered event for a chat (e.g. after it's consumed)."""
+        """Remove the buffered event for a chat (e.g. after it's consumed).
+
+        If the channel has no subscribers left, it's cleaned up entirely.
+        """
         async with self._lock:
             channel = self._channels.get(chat_id)
             if channel:
                 channel.last_event = None
+                if not channel.subscribers:
+                    del self._channels[chat_id]
 
 
 event_bus = EventBus()
