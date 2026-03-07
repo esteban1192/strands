@@ -468,6 +468,7 @@ export default function AgentChat() {
   const handleSelectChat = (selectedChatId: string) => {
     setChatId(selectedChatId);
     setMessages([]);
+    setTasks([]);
     setThinking(false);
     setSearchParams({ chatId: selectedChatId }, { replace: true });
   };
@@ -595,7 +596,10 @@ export default function AgentChat() {
                         tasks={tasks}
                         onCancel={handleCancelTask}
                         onTaskClick={(task) => {
-                          if (task.chat_id) {
+                          if (!task.chat_id) return;
+                          if (task.agent_id === id) {
+                            handleSelectChat(task.chat_id);
+                          } else {
                             navigate(`/agents/${task.agent_id}/chat?chatId=${task.chat_id}`);
                           }
                         }}
