@@ -60,9 +60,28 @@ export interface ChatAcceptedResponse {
   status: 'processing';
 }
 
+export interface ChatTask {
+  id: string;
+  source_chat_id: string;
+  message_id: string | null;
+  tool_use_id: string | null;
+  parent_task_id: string | null;
+  agent_id: string;
+  instruction: string;
+  status: 'pending' | 'running' | 'waiting_approval' | 'completed' | 'failed' | 'cancelled';
+  result_summary: string | null;
+  error: string | null;
+  chat_id: string | null;
+  created_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  sub_tasks: ChatTask[];
+}
+
 export interface ChatSSEEvent {
-  type: 'thinking' | 'complete' | 'error';
+  type: 'thinking' | 'complete' | 'error' | 'task_update';
   response?: string;
   messages?: ChatMessage[];
   message?: string;
+  tasks?: ChatTask[];
 }

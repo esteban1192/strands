@@ -2,5 +2,5 @@ export type { Agent, AgentStatus, AgentToolAssociation, AgentToolDetail, AgentCr
 export type { Tool, ToolCreateRequest, ToolUpdateRequest, PaginatedToolsResponse } from './tool';
 export type { MCP, MCPTransportType, MCPCreateRequest, MCPUpdateRequest, MCPSyncToolsResponse } from './mcp';
 export type { ToolParameter, ToolParameterCreateRequest, ToolParameterUpdateRequest } from './toolParameter';
-export type { Chat, ChatMessage, ChatMessageType, ChatToolCall, ChatToolResult, ChatDetail, ChatSendMessageResponse, ChatAcceptedResponse, ChatSSEEvent } from './chat';
+export type { Chat, ChatMessage, ChatMessageType, ChatToolCall, ChatToolResult, ChatDetail, ChatSendMessageResponse, ChatAcceptedResponse, ChatSSEEvent, ChatTask } from './chat';
 export type { AgentSubAgent } from './agentSubAgent';

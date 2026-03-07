@@ -567,3 +567,151 @@
   0%, 100% { opacity: 1; }
   50%      { opacity: 0.6; }
 }
+
+/* ===== Task Table ===== */
+.task-table {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 0.3rem 0;
+}
+
+.task-table__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.75rem;
+  background: color-mix(in srgb, var(--color-surface) 80%, transparent);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.task-table__title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+}
+
+.task-table__count {
+  font-size: 0.7rem;
+  font-weight: 600;
+  background: var(--color-primary, #4f46e5);
+  color: #fff;
+  padding: 0.05rem 0.45rem;
+  border-radius: 10px;
+  min-width: 1.2rem;
+  text-align: center;
+}
+
+.task-table__body {
+  display: flex;
+  flex-direction: column;
+}
+
+.task-table__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 0.82rem;
+  transition: background 0.1s ease;
+}
+
+.task-table__row:last-child {
+  border-bottom: none;
+}
+
+.task-table__row:hover {
+  background: var(--color-hover);
+}
+
+.task-table__instruction {
+  flex: 1;
+  color: var(--color-text-primary);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-table__right {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.task-table__cancel-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 0.15rem;
+  opacity: 0.5;
+  transition: opacity 0.12s ease, color 0.12s ease;
+}
+
+.task-table__cancel-btn:hover {
+  opacity: 1;
+  color: var(--color-danger, #ef4444);
+}
+
+/* ===== Task Status Badges ===== */
+.task-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.task-status-badge__icon {
+  font-size: 0.75rem;
+}
+
+.task-status--pending {
+  color: #6b7280;
+  background: #f3f4f6;
+}
+
+.task-status--running {
+  color: #2563eb;
+  background: #dbeafe;
+  animation: badgePulse 2s ease-in-out infinite;
+}
+
+.task-status--approval {
+  color: #b45309;
+  background: #fef3c7;
+}
+
+.task-status--completed {
+  color: #059669;
+  background: #d1fae5;
+}
+
+.task-status--failed {
+  color: #dc2626;
+  background: #fee2e2;
+}
+
+.task-status--cancelled {
+  color: #6b7280;
+  background: #f3f4f6;
+}
+
+/* ===== Chat Input Blocked (tasks running) ===== */
+.chat-input-blocked {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  padding: 0.4rem 0;
+  animation: badgePulse 2s ease-in-out infinite;
+}

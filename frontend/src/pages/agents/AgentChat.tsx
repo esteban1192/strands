@@ -3,7 +3,7 @@ import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useApi } from '@/hooks';
 import { agentApi, chatApi, agentSubAgentApi } from '@/api';
 import { LoadingSpinner, ErrorMessage, MarkdownRenderer } from '@/components/common';
-import type { ContentBlock, ChatMessage, Chat, AgentSubAgent } from '@/types';
+import type { ContentBlock, ChatMessage, Chat, AgentSubAgent, ChatTask } from '@/types';
 import './AgentChat.css';
 
 /* ------------------------------------------------------------------ */
@@ -120,6 +120,64 @@ function ToolResultContent({ content, status }: { content: { text?: string }[]; 
 }
 
 /* ------------------------------------------------------------------ */
+/*  Task table — inline display for background tasks                  */
+/* ------------------------------------------------------------------ */
+
+const TASK_STATUS_DISPLAY: Record<string, { icon: string; label: string; className: string }> = {
+  pending:            { icon: '◦', label: 'Pending',    className: 'task-status--pending' },
+  running:            { icon: '↻', label: 'Running',    className: 'task-status--running' },
+  waiting_approval:   { icon: '⏸', label: 'Needs approval', className: 'task-status--approval' },
+  completed:          { icon: '✓', label: 'Done',       className: 'task-status--completed' },
+  failed:             { icon: '✗', label: 'Failed',     className: 'task-status--failed' },
+  cancelled:          { icon: '—', label: 'Cancelled',  className: 'task-status--cancelled' },
+};
+
+function TaskStatusBadge({ status }: { status: string }) {
+  const display = TASK_STATUS_DISPLAY[status] ?? { icon: '?', label: status, className: '' };
+  return (
+    <span className={`task-status-badge ${display.className}`}>
+      <span className="task-status-badge__icon">{display.icon}</span>
+      {display.label}
+    </span>
+  );
+}
+
+function TaskTable({ tasks, onCancel }: { tasks: ChatTask[]; onCancel?: (taskId: string) => void }) {
+  if (!tasks.length) return null;
+
+  const canCancel = (t: ChatTask) =>
+    t.status === 'pending' || t.status === 'running' || t.status === 'waiting_approval';
+
+  return (
+    <div className="task-table">
+      <div className="task-table__header">
+        <span className="task-table__title">Background Tasks</span>
+        <span className="task-table__count">{tasks.length}</span>
+      </div>
+      <div className="task-table__body">
+        {tasks.map((task) => (
+          <div key={task.id} className="task-table__row">
+            <div className="task-table__instruction">{task.instruction}</div>
+            <div className="task-table__right">
+              <TaskStatusBadge status={task.status} />
+              {canCancel(task) && onCancel && (
+                <button
+                  className="task-table__cancel-btn"
+                  onClick={() => onCancel(task.id)}
+                  title="Cancel task"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Render a single chat message (one content block per row)          */
 /* ------------------------------------------------------------------ */
 function MessageBubble({
@@ -196,6 +254,7 @@ export default function AgentChat() {
   const [chatList, setChatList] = useState<Chat[]>([]);
   const [subAgents, setSubAgents] = useState<AgentSubAgent[]>([]);
   const [input, setInput] = useState('');
+  const [tasks, setTasks] = useState<ChatTask[]>([]);
   const [thinking, setThinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingChat, setLoadingChat] = useState(false);
@@ -229,12 +288,26 @@ export default function AgentChat() {
         if (data.messages) {
           setMessages(data.messages);
         }
+        if (data.tasks) {
+          setTasks(data.tasks);
+        }
       } catch {
         // Ignore malformed payloads
       }
       setThinking(false);
       setProcessingApproval(null);
       inputRef.current?.focus();
+    });
+
+    es.addEventListener('task_update', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.tasks) {
+          setTasks(data.tasks);
+        }
+      } catch {
+        // Ignore malformed payloads
+      }
     });
 
     es.addEventListener('error', (e: Event) => {
@@ -269,6 +342,10 @@ export default function AgentChat() {
     agentSubAgentApi.list(id).then(setSubAgents).catch(() => {});
   }, [id]);
 
+  const hasActiveTasks = tasks.some(
+    (t) => t.status === 'pending' || t.status === 'running' || t.status === 'waiting_approval',
+  );
+
   const agentNameMap: Record<string, string> = {};
   for (const sa of subAgents) {
     agentNameMap[sa.child_agent_id] = sa.child_agent_name;
@@ -291,7 +368,7 @@ export default function AgentChat() {
     [subAgents, messages],
   );
 
-  // Load messages when switching to an existing chat
+  // Load messages and tasks when switching to an existing chat
   useEffect(() => {
     if (!id || !chatId) return;
     setLoadingChat(true);
@@ -305,6 +382,8 @@ export default function AgentChat() {
         setChatId(null);
       })
       .finally(() => setLoadingChat(false));
+
+    chatApi.listTasks(id, chatId).then(setTasks).catch(() => {});
   }, [id, chatId]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -368,6 +447,7 @@ export default function AgentChat() {
   const handleNewChat = () => {
     setChatId(null);
     setMessages([]);
+    setTasks([]);
     setError(null);
     setThinking(false);
     setSearchParams({}, { replace: true });
@@ -407,6 +487,18 @@ export default function AgentChat() {
       setError(message);
       setThinking(false);
       setProcessingApproval(null);
+    }
+  };
+
+  const handleCancelTask = async (taskId: string) => {
+    try {
+      await chatApi.cancelTask(taskId);
+      if (id && chatId) {
+        const updated = await chatApi.listTasks(id, chatId);
+        setTasks(updated);
+      }
+    } catch {
+      setError('Failed to cancel task');
     }
   };
 
@@ -480,19 +572,41 @@ export default function AgentChat() {
               </div>
             )}
 
-            {messages.map((msg) => (
-              <MessageBubble
-                key={msg.id}
-                msg={msg}
-                agentName={agent.name}
-                agentNameMap={agentNameMap}
-                parentAgentId={agent.id}
-                hasActiveChildDelegation={hasActiveChildDelegation}
-                onApprove={handleApproveToolCall}
-                onReject={handleRejectToolCall}
-                isProcessing={processingApproval === msg.id}
-              />
-            ))}
+            {messages.map((msg) => {
+              // Replace create_tasks tool calls and their results with the task table
+              if (msg.message_type === 'tool_call' && msg.tool_call?.tool_name === 'create_tasks') {
+                return (
+                  <div key={msg.id} className="chat-message chat-message--assistant">
+                    <span className="chat-message__role">{agent.name}</span>
+                    <div className="chat-message__bubble">
+                      <TaskTable tasks={tasks} onCancel={handleCancelTask} />
+                    </div>
+                  </div>
+                );
+              }
+              // Hide the tool_result for create_tasks (already shown in the table)
+              if (
+                msg.message_type === 'tool_result' &&
+                msg.tool_result &&
+                tasks.length > 0 &&
+                tasks.some((t) => t.tool_use_id === msg.tool_result?.tool_use_id)
+              ) {
+                return null;
+              }
+              return (
+                <MessageBubble
+                  key={msg.id}
+                  msg={msg}
+                  agentName={agent.name}
+                  agentNameMap={agentNameMap}
+                  parentAgentId={agent.id}
+                  hasActiveChildDelegation={hasActiveChildDelegation}
+                  onApprove={handleApproveToolCall}
+                  onReject={handleRejectToolCall}
+                  isProcessing={processingApproval === msg.id}
+                />
+              );
+            })}
 
             {thinking && (
               <div className="chat-thinking">
@@ -511,6 +625,11 @@ export default function AgentChat() {
           {error && <div className="chat-error">{error}</div>}
 
           <div className="chat-input-area">
+            {hasActiveTasks && (
+              <div className="chat-input-blocked">
+                Tasks are running — waiting for completion…
+              </div>
+            )}
             <textarea
               ref={inputRef}
               className="chat-input"
@@ -518,13 +637,13 @@ export default function AgentChat() {
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
-              disabled={thinking}
+              disabled={thinking || hasActiveTasks}
               rows={1}
             />
             <button
               className="chat-send-btn"
               onClick={handleSend}
-              disabled={thinking || !input.trim()}
+              disabled={thinking || hasActiveTasks || !input.trim()}
             >
               {thinking ? 'Sending…' : 'Send'}
             </button>

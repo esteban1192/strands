@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { Chat, ChatDetail, ChatAcceptedResponse } from '@/types';
+import type { Chat, ChatDetail, ChatAcceptedResponse, ChatTask } from '@/types';
 
 export const chatApi = {
   /** List all chats for an agent (metadata only, most recent first). */
@@ -45,4 +45,12 @@ export const chatApi = {
   /** Build the SSE events URL for a chat. */
   eventsUrl: (agentId: string, chatId: string) =>
     `/api/agents/${agentId}/chats/${chatId}/events`,
+
+  /** List all top-level tasks for a chat. */
+  listTasks: (agentId: string, chatId: string) =>
+    apiClient.get<ChatTask[]>(`/agents/${agentId}/chats/${chatId}/tasks`).then((r) => r.data),
+
+  /** Cancel a task. */
+  cancelTask: (taskId: string) =>
+    apiClient.post<ChatTask>(`/tasks/${taskId}/cancel`).then((r) => r.data),
 };
