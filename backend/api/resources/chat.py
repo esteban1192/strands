@@ -42,6 +42,7 @@ from api.models import (
 )
 from api.services import ChatService, TaskService
 from core.agent_executor import AgentExecutor, AgentExecutionError, SUB_AGENT_TOOL_PREFIX
+from mcps.task_management.tools import CREATE_TASKS_TOOL_NAME
 from core.exceptions import MCPConnectionError
 from core.mcp_manager import MCPManager
 from core.mcp_session_cache import session_cache
@@ -165,7 +166,14 @@ async def _background_invoke(
     Used for both first messages and follow-ups.  The user message is
     already persisted, so we pass ``prompt=None`` and the agent picks
     up from the conversation history.
+
+    If the agent calls ``create_tasks``, the approval hook blocks it,
+    the turn ends, and this function auto-processes the task creation
+    (no user approval needed).  The orchestrating agent is NOT resumed
+    here — the task runner's completion callback handles that.
     """
+    from core.task_runner import task_runner
+
     await event_bus.publish(chat_id, {"type": "thinking"})
 
     async with get_db_session() as db:
@@ -187,23 +195,41 @@ async def _background_invoke(
                     agent_id=agent_id,
                 )
 
-            # Link any tasks created during this turn to their message
             await TaskService.resolve_message_ids(db, chat_id)
             await db.commit()
 
             pending = await ChatService.get_pending_tool_calls(db, chat_id, agent_id=agent_id)
-            if not pending and not result.cancelled_tool_use_ids:
+
+            # Auto-process create_tasks calls — extract them from the
+            # pending list, create the real tasks, and schedule them.
+            task_calls, remaining_pending = _split_task_calls(pending)
+
+            if task_calls:
+                await _auto_process_create_tasks(
+                    db, chat_id, agent_id, task_calls, task_runner,
+                )
+
+            if not remaining_pending and not task_calls and not result.cancelled_tool_use_ids:
                 if root_deleg:
                     await ChatService.complete_delegation(db, root_deleg.id)
 
             await ChatService.touch_updated_at(db, chat_id)
 
             all_messages = await ChatService.get_messages(db, chat_id)
-            await event_bus.publish(chat_id, {
+            tasks = await TaskService.get_tasks_for_chat(db, chat_id)
+
+            event_payload = {
                 "type": "complete",
                 "response": result.response,
                 "messages": _serialize_messages(all_messages),
-            })
+            }
+            if tasks:
+                event_payload["tasks"] = [
+                    TaskService.to_response(t).model_dump(mode="json")
+                    for t in tasks
+                ]
+
+            await event_bus.publish(chat_id, event_payload)
 
         except Exception as exc:
             logger.exception("Background invoke failed for chat %s", chat_id)
@@ -584,6 +610,90 @@ async def _try_resume_chain(
             )
 
         agent_id = parent_deleg.agent_id
+
+
+# ------------------------------------------------------------------
+# Task auto-processing helpers
+# ------------------------------------------------------------------
+
+def _split_task_calls(pending: List[ChatMessageResponse]):
+    """Separate ``create_tasks`` calls from regular pending tool calls.
+
+    Returns ``(task_calls, remaining)`` — two lists of ChatMessageResponse.
+    """
+    task_calls = []
+    remaining = []
+    for msg in pending:
+        if msg.tool_call and msg.tool_call.tool_name == CREATE_TASKS_TOOL_NAME:
+            task_calls.append(msg)
+        else:
+            remaining.append(msg)
+    return task_calls, remaining
+
+
+async def _auto_process_create_tasks(
+    db: AsyncSession,
+    chat_id: uuid.UUID,
+    agent_id: uuid.UUID,
+    task_calls: List[ChatMessageResponse],
+    task_runner,
+):
+    """Auto-approve ``create_tasks`` tool calls and create real tasks.
+
+    For each call:
+      1. Parse the ``tasks`` list from the tool input.
+      2. Create ``ChatTaskModel`` + child chat for each instruction.
+      3. Schedule them in the task runner.
+      4. Mark the tool call as approved and update its tool result with
+         the created task IDs.
+    """
+    import json
+
+    for msg in task_calls:
+        tc = msg.tool_call
+        tool_input = tc.input or {}
+        task_defs = tool_input.get("tasks", [])
+        tool_use_id = tc.tool_use_id
+
+        # Approve the tool call message
+        await ChatService.approve_tool_call(db, msg.id)
+
+        created = []
+        for item in task_defs:
+            instruction = item if isinstance(item, str) else item.get("instruction", str(item))
+            task_agent_id = agent_id
+            if isinstance(item, dict) and item.get("agent_id"):
+                task_agent_id = uuid.UUID(item["agent_id"])
+
+            task = await TaskService.create_task(
+                db,
+                source_chat_id=chat_id,
+                agent_id=task_agent_id,
+                instruction=instruction,
+                tool_use_id=tool_use_id,
+            )
+            task_chat = await TaskService.create_task_chat(db, task)
+            created.append({
+                "task_id": str(task.id),
+                "chat_id": str(task_chat.id),
+                "instruction": instruction,
+                "status": "pending",
+            })
+
+        await db.commit()
+
+        # Update the tool result with the created task info
+        await ChatService.update_tool_result(
+            db, chat_id, tool_use_id, json.dumps(created, indent=2),
+        )
+
+        # Resolve the message_id on the tasks now that messages are persisted
+        await TaskService.resolve_message_ids(db, chat_id)
+        await db.commit()
+
+        # Schedule all tasks for background execution
+        for item in created:
+            await task_runner.schedule(uuid.UUID(item["task_id"]))
 
 
 # ------------------------------------------------------------------

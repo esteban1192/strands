@@ -253,8 +253,11 @@ class AgentExecutor:
         if chat_id is not None:
             try:
                 loop = asyncio.get_running_loop()
-                from mcps.task_management.tools import build_task_tools
+                from mcps.task_management.tools import build_task_tools, CREATE_TASKS_TOOL_NAME
                 task_tool_functions = build_task_tools(loop, chat_id, agent_id)
+                # create_tasks is approval-gated so the agent's turn ends
+                # after calling it — the chat resource auto-processes it.
+                tools_requiring_approval.add(CREATE_TASKS_TOOL_NAME)
             except Exception as exc:
                 logger.warning("Could not build task tools: %s", exc)
 
