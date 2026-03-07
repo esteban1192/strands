@@ -138,41 +138,57 @@ async def create_chat(
 ):
     """Create a new chat and start processing the first message.
 
-    Returns immediately with the new chat_id.  The agent result will
-    arrive via the SSE channel.
+    Returns immediately with the new chat_id.  The user message is
+    persisted synchronously so it survives page reloads.  The agent
+    result will arrive via the SSE channel.
     """
     title = request.prompt[:100].strip() or "New chat"
     chat = await ChatService.create_chat(db, agent_id, title)
     await ChatService.create_delegation(db, chat.id, agent_id)
 
+    user_msg = [{"role": "user", "content": [{"text": request.prompt}]}]
+    await ChatService.add_messages(db, chat.id, user_msg, agent_id=agent_id)
+
     asyncio.create_task(
-        _background_create_chat(chat.id, agent_id, request.prompt)
+        _background_invoke(chat.id, agent_id)
     )
 
     return ChatAcceptedResponse(chat_id=chat.id)
 
 
-async def _background_create_chat(
+async def _background_invoke(
     chat_id: uuid.UUID,
     agent_id: uuid.UUID,
-    prompt: str,
 ):
-    """Background task: invoke agent for the first message in a chat."""
+    """Background task: load history and let the agent continue.
+
+    Used for both first messages and follow-ups.  The user message is
+    already persisted, so we pass ``prompt=None`` and the agent picks
+    up from the conversation history.
+    """
     await event_bus.publish(chat_id, {"type": "thinking"})
 
     async with get_db_session() as db:
         try:
-            result = await AgentExecutor.invoke(db, agent_id, prompt, chat_id=chat_id)
+            root_deleg = await ChatService.get_active_delegation(db, chat_id, agent_id)
+            if not root_deleg:
+                root_deleg = await ChatService.create_delegation(db, chat_id, agent_id)
 
-            stored = await ChatService.add_messages(
-                db, chat_id, result.messages,
-                tools_requiring_approval=result.tools_requiring_approval,
-                agent_id=agent_id,
+            history = await ChatService.get_messages_as_dicts(db, chat_id, agent_id=agent_id)
+
+            result = await AgentExecutor.invoke(
+                db, agent_id, None, history=history, chat_id=chat_id,
             )
+
+            if result.messages:
+                await ChatService.add_messages(
+                    db, chat_id, result.messages,
+                    tools_requiring_approval=result.tools_requiring_approval,
+                    agent_id=agent_id,
+                )
 
             pending = await ChatService.get_pending_tool_calls(db, chat_id, agent_id=agent_id)
             if not pending and not result.cancelled_tool_use_ids:
-                root_deleg = await ChatService.get_active_delegation(db, chat_id, agent_id)
                 if root_deleg:
                     await ChatService.complete_delegation(db, root_deleg.id)
 
@@ -185,8 +201,8 @@ async def _background_create_chat(
                 "messages": _serialize_messages(all_messages),
             })
 
-        except (AgentExecutionError, MCPConnectionError, Exception) as exc:
-            logger.exception("Background create_chat failed for chat %s", chat_id)
+        except Exception as exc:
+            logger.exception("Background invoke failed for chat %s", chat_id)
             await event_bus.publish(chat_id, {
                 "type": "error",
                 "message": str(exc),
@@ -209,58 +225,14 @@ async def send_message(
     if not chat or chat.agent_id != agent_id:
         raise HTTPException(status_code=404, detail="Chat not found")
 
+    user_msg = [{"role": "user", "content": [{"text": request.prompt}]}]
+    await ChatService.add_messages(db, chat_id, user_msg, agent_id=agent_id)
+
     asyncio.create_task(
-        _background_send_message(chat_id, agent_id, request.prompt)
+        _background_invoke(chat_id, agent_id)
     )
 
     return ChatAcceptedResponse(chat_id=chat_id)
-
-
-async def _background_send_message(
-    chat_id: uuid.UUID,
-    agent_id: uuid.UUID,
-    prompt: str,
-):
-    """Background task: invoke agent for a follow-up message."""
-    await event_bus.publish(chat_id, {"type": "thinking"})
-
-    async with get_db_session() as db:
-        try:
-            root_deleg = await ChatService.get_active_delegation(db, chat_id, agent_id)
-            if not root_deleg:
-                root_deleg = await ChatService.create_delegation(db, chat_id, agent_id)
-
-            history = await ChatService.get_messages_as_dicts(db, chat_id, agent_id=agent_id)
-
-            result = await AgentExecutor.invoke(
-                db, agent_id, prompt, history=history, chat_id=chat_id,
-            )
-
-            await ChatService.add_messages(
-                db, chat_id, result.messages,
-                tools_requiring_approval=result.tools_requiring_approval,
-                agent_id=agent_id,
-            )
-
-            pending = await ChatService.get_pending_tool_calls(db, chat_id, agent_id=agent_id)
-            if not pending and not result.cancelled_tool_use_ids:
-                await ChatService.complete_delegation(db, root_deleg.id)
-
-            await ChatService.touch_updated_at(db, chat_id)
-
-            all_messages = await ChatService.get_messages(db, chat_id)
-            await event_bus.publish(chat_id, {
-                "type": "complete",
-                "response": result.response,
-                "messages": _serialize_messages(all_messages),
-            })
-
-        except (AgentExecutionError, MCPConnectionError, Exception) as exc:
-            logger.exception("Background send_message failed for chat %s", chat_id)
-            await event_bus.publish(chat_id, {
-                "type": "error",
-                "message": str(exc),
-            })
 
 
 # ------------------------------------------------------------------
