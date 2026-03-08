@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { to: '/agents', label: 'Agents', icon: '⬡' },
   { to: '/tools', label: 'Tools', icon: '⚙' },
   { to: '/mcps', label: 'MCPs', icon: '⬢' },
+  { to: '/webhooks', label: 'Webhooks', icon: '⚡' },
 ];
 
 export default function Sidebar() {

@@ -4,3 +4,4 @@ export type { MCP, MCPTransportType, MCPCreateRequest, MCPUpdateRequest, MCPSync
 export type { ToolParameter, ToolParameterCreateRequest, ToolParameterUpdateRequest } from './toolParameter';
 export type { Chat, ChatMessage, ChatMessageType, ChatToolCall, ChatToolResult, ChatDetail, ChatSendMessageResponse, ChatAcceptedResponse, ChatSSEEvent, ChatTask } from './chat';
 export type { AgentSubAgent } from './agentSubAgent';
+export type { Webhook, WebhookSourceType, WebhookCreateRequest, WebhookUpdateRequest, WebhookInvocation } from './webhook';

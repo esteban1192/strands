@@ -66,6 +66,16 @@ from .task_models import (
     ChatTaskBatchCreateResponse,
 )
 
+# Webhook models
+from .webhook_models import (
+    WebhookSourceType,
+    WebhookResponse,
+    WebhookCreateRequest,
+    WebhookUpdateRequest,
+    WebhookInvocationResponse,
+    WebhookInvokeResponse,
+)
+
 __all__ = [
     # Common
     "HealthResponse",
@@ -115,4 +125,12 @@ __all__ = [
     "ChatTaskCreateRequest",
     "ChatTaskBatchCreateRequest",
     "ChatTaskBatchCreateResponse",
+
+    # Webhook models
+    "WebhookSourceType",
+    "WebhookResponse",
+    "WebhookCreateRequest",
+    "WebhookUpdateRequest",
+    "WebhookInvocationResponse",
+    "WebhookInvokeResponse",
 ]

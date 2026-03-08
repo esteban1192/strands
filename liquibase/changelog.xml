@@ -39,5 +39,6 @@
     <include file="changelogs/025-create-chat-delegations-table.xml"/>
     <include file="changelogs/026-cascade-delete-tools-on-mcp-delete.xml"/>
     <include file="changelogs/027-create-chat-tasks-table.xml"/>
+    <include file="changelogs/028-create-webhooks.xml"/>
 
 </databaseChangeLog>

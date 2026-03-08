@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <!-- Create the source_type enum -->
+    <changeSet id="028-create-webhook-source-type-enum" author="system" context="all">
+        <comment>Create enum type for webhook source types.</comment>
+        <sql>
+            CREATE TYPE strands.webhook_source_type AS ENUM ('AWS_SNS');
+        </sql>
+        <rollback>
+            <sql>DROP TYPE IF EXISTS strands.webhook_source_type;</sql>
+        </rollback>
+    </changeSet>
+
+    <!-- Create webhooks table -->
+    <changeSet id="028-create-webhooks-table" author="system" context="all">
+        <comment>
+            Create webhooks table. A webhook associates an external notification
+            source (e.g. AWS SNS) with an agent that will analyse the incoming
+            payload and produce an incident-response artifact.
+        </comment>
+
+        <createTable schemaName="strands" tableName="webhooks">
+            <column name="id" type="UUID" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="name" type="VARCHAR(255)">
+                <constraints nullable="false" unique="true"/>
+            </column>
+            <column name="description" type="TEXT">
+                <constraints nullable="true"/>
+            </column>
+            <column name="agent_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="source_type" type="strands.webhook_source_type">
+                <constraints nullable="false"/>
+            </column>
+            <column name="is_active" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+            baseTableSchemaName="strands" baseTableName="webhooks" baseColumnNames="agent_id"
+            referencedTableSchemaName="strands" referencedTableName="agents" referencedColumnNames="id"
+            constraintName="fk_webhooks_agent"
+            onDelete="CASCADE" onUpdate="CASCADE"/>
+
+        <createIndex schemaName="strands" tableName="webhooks" indexName="idx_webhooks_agent_id">
+            <column name="agent_id"/>
+        </createIndex>
+
+        <rollback>
+            <dropTable schemaName="strands" tableName="webhooks"/>
+        </rollback>
+    </changeSet>
+
+    <!-- Create webhook_invocations table -->
+    <changeSet id="028-create-webhook-invocations-table" author="system" context="all">
+        <comment>
+            Audit log for webhook invocations. Each row records a single
+            incoming request, the raw payload, and a reference to the chat
+            that was created to handle it.
+        </comment>
+
+        <createTable schemaName="strands" tableName="webhook_invocations">
+            <column name="id" type="UUID" defaultValueComputed="gen_random_uuid()">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="webhook_id" type="UUID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="chat_id" type="UUID">
+                <constraints nullable="true"/>
+            </column>
+            <column name="source_ip" type="VARCHAR(45)">
+                <constraints nullable="true"/>
+            </column>
+            <column name="raw_payload" type="JSONB">
+                <constraints nullable="true"/>
+            </column>
+            <column name="status" type="VARCHAR(50)" defaultValue="received">
+                <constraints nullable="false"/>
+            </column>
+            <column name="error_message" type="TEXT">
+                <constraints nullable="true"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP WITH TIME ZONE" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+
+        <addForeignKeyConstraint
+            baseTableSchemaName="strands" baseTableName="webhook_invocations" baseColumnNames="webhook_id"
+            referencedTableSchemaName="strands" referencedTableName="webhooks" referencedColumnNames="id"
+            constraintName="fk_webhook_invocations_webhook"
+            onDelete="CASCADE" onUpdate="CASCADE"/>
+
+        <addForeignKeyConstraint
+            baseTableSchemaName="strands" baseTableName="webhook_invocations" baseColumnNames="chat_id"
+            referencedTableSchemaName="strands" referencedTableName="chats" referencedColumnNames="id"
+            constraintName="fk_webhook_invocations_chat"
+            onDelete="SET NULL" onUpdate="CASCADE"/>
+
+        <!-- Check constraint on status -->
+        <sql>
+            ALTER TABLE strands.webhook_invocations ADD CONSTRAINT ck_webhook_invocations_status
+            CHECK (status IN ('received', 'processing', 'completed', 'failed'));
+        </sql>
+
+        <createIndex schemaName="strands" tableName="webhook_invocations" indexName="idx_webhook_invocations_webhook_id">
+            <column name="webhook_id"/>
+        </createIndex>
+        <createIndex schemaName="strands" tableName="webhook_invocations" indexName="idx_webhook_invocations_chat_id">
+            <column name="chat_id"/>
+        </createIndex>
+        <createIndex schemaName="strands" tableName="webhook_invocations" indexName="idx_webhook_invocations_created_at">
+            <column name="created_at" descending="true"/>
+        </createIndex>
+
+        <rollback>
+            <dropTable schemaName="strands" tableName="webhook_invocations"/>
+        </rollback>
+    </changeSet>
+
+    <!-- Add webhook_id to chats -->
+    <changeSet id="028-add-webhook-id-to-chats" author="system" context="all">
+        <comment>
+            Add nullable webhook_id to chats so we can identify chats
+            that were initiated by a webhook invocation.
+        </comment>
+
+        <addColumn schemaName="strands" tableName="chats">
+            <column name="webhook_id" type="UUID">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+
+        <addForeignKeyConstraint
+            baseTableSchemaName="strands" baseTableName="chats" baseColumnNames="webhook_id"
+            referencedTableSchemaName="strands" referencedTableName="webhooks" referencedColumnNames="id"
+            constraintName="fk_chats_webhook"
+            onDelete="SET NULL" onUpdate="CASCADE"/>
+
+        <createIndex schemaName="strands" tableName="chats" indexName="idx_chats_webhook_id">
+            <column name="webhook_id"/>
+        </createIndex>
+
+        <rollback>
+            <dropIndex schemaName="strands" tableName="chats" indexName="idx_chats_webhook_id"/>
+            <dropColumn schemaName="strands" tableName="chats" columnName="webhook_id"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

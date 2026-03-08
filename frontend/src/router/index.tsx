@@ -9,6 +9,8 @@ import {
   ToolForm,
   MCPList,
   MCPForm,
+  WebhookList,
+  WebhookForm,
 } from '@/pages';
 
 const router = createBrowserRouter([
@@ -32,6 +34,11 @@ const router = createBrowserRouter([
       { path: 'mcps/new', element: <MCPForm /> },
       { path: 'mcps/:id', element: <MCPForm /> },
       { path: 'mcps/:id/edit', element: <MCPForm /> },
+
+      { path: 'webhooks', element: <WebhookList /> },
+      { path: 'webhooks/new', element: <WebhookForm /> },
+      { path: 'webhooks/:id', element: <WebhookForm /> },
+      { path: 'webhooks/:id/edit', element: <WebhookForm /> },
     ],
   },
 ]);
