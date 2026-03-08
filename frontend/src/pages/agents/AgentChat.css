@@ -646,10 +646,6 @@
   border-bottom: none;
 }
 
-.task-table__row--clickable {
-  cursor: pointer;
-}
-
 .task-table__row:hover {
   background: var(--color-hover);
 }
@@ -661,6 +657,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.task-table__link {
+  color: var(--color-primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.task-table__link:hover {
+  text-decoration: underline;
 }
 
 .task-table__right {

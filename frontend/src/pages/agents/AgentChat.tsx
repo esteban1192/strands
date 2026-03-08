@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useApi } from '@/hooks';
 import { agentApi, chatApi, agentSubAgentApi } from '@/api';
 import { LoadingSpinner, ErrorMessage, MarkdownRenderer } from '@/components/common';
@@ -146,10 +146,12 @@ function TaskTable({
   tasks,
   onCancel,
   onTaskClick,
+  getTaskUrl,
 }: {
   tasks: ChatTask[];
   onCancel?: (taskId: string) => void;
   onTaskClick?: (task: ChatTask) => void;
+  getTaskUrl?: (task: ChatTask) => string | null;
 }) {
   if (!tasks.length) return null;
 
@@ -163,27 +165,42 @@ function TaskTable({
         <span className="task-table__count">{tasks.length}</span>
       </div>
       <div className="task-table__body">
-        {tasks.map((task) => (
-          <div
-            key={task.id}
-            className={`task-table__row${task.chat_id ? ' task-table__row--clickable' : ''}`}
-            onClick={() => task.chat_id && onTaskClick?.(task)}
-          >
-            <div className="task-table__instruction">{task.instruction}</div>
-            <div className="task-table__right">
-              <TaskStatusBadge status={task.status} />
-              {canCancel(task) && onCancel && (
-                <button
-                  className="task-table__cancel-btn"
-                  onClick={(e) => { e.stopPropagation(); onCancel(task.id); }}
-                  title="Cancel task"
-                >
-                  ×
-                </button>
-              )}
+        {tasks.map((task) => {
+          const url = getTaskUrl?.(task);
+          return (
+            <div key={task.id} className="task-table__row">
+              <div className="task-table__instruction">
+                {url ? (
+                  <Link
+                    to={url}
+                    className="task-table__link"
+                    onClick={(e) => {
+                      if (e.ctrlKey || e.metaKey) return;
+                      e.preventDefault();
+                      onTaskClick?.(task);
+                    }}
+                  >
+                    {task.instruction}
+                  </Link>
+                ) : (
+                  task.instruction
+                )}
+              </div>
+              <div className="task-table__right">
+                <TaskStatusBadge status={task.status} />
+                {canCancel(task) && onCancel && (
+                  <button
+                    className="task-table__cancel-btn"
+                    onClick={(e) => { e.stopPropagation(); onCancel(task.id); }}
+                    title="Cancel task"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -610,6 +627,11 @@ export default function AgentChat() {
                       <TaskTable
                         tasks={tasks}
                         onCancel={handleCancelTask}
+                        getTaskUrl={(task) =>
+                          task.chat_id
+                            ? `/agents/${task.agent_id}/chat?chatId=${task.chat_id}`
+                            : null
+                        }
                         onTaskClick={(task) => {
                           if (!task.chat_id) return;
                           if (task.agent_id === id) {
