@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="029-add-prompt-to-webhooks" author="system" context="all">
+        <comment>
+            Add a custom prompt column to webhooks so each webhook can define
+            its own investigation instructions instead of using the hardcoded default.
+        </comment>
+
+        <addColumn schemaName="strands" tableName="webhooks">
+            <column name="prompt" type="TEXT">
+                <constraints nullable="true"/>
+            </column>
+        </addColumn>
+
+        <rollback>
+            <dropColumn schemaName="strands" tableName="webhooks" columnName="prompt"/>
+        </rollback>
+    </changeSet>
+
+</databaseChangeLog>

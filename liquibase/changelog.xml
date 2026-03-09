@@ -40,5 +40,6 @@
     <include file="changelogs/026-cascade-delete-tools-on-mcp-delete.xml"/>
     <include file="changelogs/027-create-chat-tasks-table.xml"/>
     <include file="changelogs/028-create-webhooks.xml"/>
+    <include file="changelogs/029-add-prompt-to-webhooks.xml"/>
 
 </databaseChangeLog>

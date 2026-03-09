@@ -148,41 +148,7 @@ def parse_sns_notification(message: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def format_alarm_prompt(parsed: Dict[str, Any]) -> str:
-    """Format a parsed SNS notification into a prompt for the agent."""
-    import json
-
-    alarm = parsed.get("alarm_data", {})
-    subject = parsed.get("subject") or "Unknown"
-    topic = parsed.get("topic_arn") or "Unknown"
-    timestamp = parsed.get("timestamp") or "Unknown"
-
-    alarm_name = alarm.get("AlarmName", subject)
-    description = alarm.get("AlarmDescription", "N/A")
-    old_state = alarm.get("OldStateValue", "N/A")
-    new_state = alarm.get("NewStateValue", "N/A")
-    reason = alarm.get("NewStateReason", "N/A")
-    region = alarm.get("Region", "N/A")
-    account = alarm.get("AWSAccountId", "N/A")
-
-    return f"""## AWS CloudWatch Alarm Notification
-
-**Alarm:** {alarm_name}
-**Description:** {description}
-**State Change:** {old_state} → {new_state}
-**Reason:** {reason}
-**Timestamp:** {timestamp}
-**Region:** {region}
-**Account:** {account}
-**SNS Topic:** {topic}
-
-### Raw Alarm Data
-```json
-{json.dumps(alarm, indent=2, default=str)}
-```
-
----
-
+DEFAULT_WEBHOOK_PROMPT = """\
 ## Your Mission
 
 You are investigating a production incident triggered by the alarm above. Conduct a **thorough, parallel investigation** using all available sub-agents and tools. Do not just summarize the alarm — actively query AWS to gather real evidence.
@@ -217,3 +183,48 @@ After all tasks complete, synthesize the findings into a structured incident rep
 - **Prevention**: Long-term recommendations to avoid recurrence
 
 Start by creating tasks to run the investigation in parallel."""
+
+
+def format_alarm_prompt(parsed: Dict[str, Any], custom_prompt: Optional[str] = None) -> str:
+    """Format a parsed SNS notification into a prompt for the agent.
+
+    The alarm info block is always included. The instructions section uses
+    ``custom_prompt`` when provided, otherwise falls back to
+    ``DEFAULT_WEBHOOK_PROMPT``.
+    """
+    import json
+
+    alarm = parsed.get("alarm_data", {})
+    subject = parsed.get("subject") or "Unknown"
+    topic = parsed.get("topic_arn") or "Unknown"
+    timestamp = parsed.get("timestamp") or "Unknown"
+
+    alarm_name = alarm.get("AlarmName", subject)
+    description = alarm.get("AlarmDescription", "N/A")
+    old_state = alarm.get("OldStateValue", "N/A")
+    new_state = alarm.get("NewStateValue", "N/A")
+    reason = alarm.get("NewStateReason", "N/A")
+    region = alarm.get("Region", "N/A")
+    account = alarm.get("AWSAccountId", "N/A")
+
+    instructions = custom_prompt if custom_prompt else DEFAULT_WEBHOOK_PROMPT
+
+    return f"""## AWS CloudWatch Alarm Notification
+
+**Alarm:** {alarm_name}
+**Description:** {description}
+**State Change:** {old_state} → {new_state}
+**Reason:** {reason}
+**Timestamp:** {timestamp}
+**Region:** {region}
+**Account:** {account}
+**SNS Topic:** {topic}
+
+### Raw Alarm Data
+```json
+{json.dumps(alarm, indent=2, default=str)}
+```
+
+---
+
+{instructions}"""

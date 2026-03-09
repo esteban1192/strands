@@ -206,7 +206,7 @@ async def _handle_sns(
 
     # --- Process the actual notification ---
     parsed = parse_sns_notification(payload)
-    prompt = format_alarm_prompt(parsed)
+    prompt = format_alarm_prompt(parsed, custom_prompt=webhook.prompt)
     subject = parsed.get("subject") or "Webhook notification"
 
     chat = await ChatService.create_chat(db, webhook.agent_id, title=subject[:100])

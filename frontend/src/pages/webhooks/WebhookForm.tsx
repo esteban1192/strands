@@ -18,6 +18,7 @@ export default function WebhookForm() {
     agent_id: '',
     source_type: 'AWS_SNS',
     is_active: true,
+    prompt: '',
   });
   const [invokeUrl, setInvokeUrl] = useState<string | null>(null);
   const [invocations, setInvocations] = useState<WebhookInvocation[]>([]);
@@ -41,6 +42,7 @@ export default function WebhookForm() {
             agent_id: webhook.agent_id,
             source_type: webhook.source_type,
             is_active: webhook.is_active,
+            prompt: webhook.prompt ?? '',
           });
           setInvokeUrl(webhook.invoke_url);
 
@@ -171,6 +173,17 @@ export default function WebhookForm() {
           >
             <option value="AWS_SNS">AWS SNS</option>
           </select>
+        </div>
+
+        <div className="form-field">
+          <label htmlFor="prompt">Custom Instructions</label>
+          <textarea
+            id="prompt"
+            value={form.prompt ?? ''}
+            onChange={(e) => setForm((f) => ({ ...f, prompt: e.target.value || null }))}
+            placeholder="Optional — provide custom instructions for the agent when this webhook is triggered. Leave empty to use the default investigation prompt."
+            rows={8}
+          />
         </div>
 
         <div className="form-field form-field--inline">

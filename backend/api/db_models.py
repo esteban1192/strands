@@ -321,6 +321,7 @@ class WebhookModel(Base):
         nullable=False,
     )
     is_active: Mapped[bool] = Column(Boolean, nullable=False, default=True)
+    prompt: Mapped[Optional[str]] = Column(Text, nullable=True)
     created_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

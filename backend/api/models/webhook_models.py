@@ -21,6 +21,7 @@ class WebhookResponse(BaseModel):
     agent_name: Optional[str] = None
     source_type: WebhookSourceType
     is_active: bool = True
+    prompt: Optional[str] = None
     invoke_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -32,6 +33,7 @@ class WebhookCreateRequest(BaseModel):
     agent_id: uuid.UUID
     source_type: WebhookSourceType = Field(default=WebhookSourceType.AWS_SNS)
     is_active: bool = True
+    prompt: Optional[str] = None
 
 
 class WebhookUpdateRequest(BaseModel):
@@ -40,6 +42,7 @@ class WebhookUpdateRequest(BaseModel):
     agent_id: Optional[uuid.UUID] = None
     source_type: Optional[WebhookSourceType] = None
     is_active: Optional[bool] = None
+    prompt: Optional[str] = None
 
 
 class WebhookInvocationResponse(BaseModel):

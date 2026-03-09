@@ -8,6 +8,7 @@ export interface Webhook {
   agent_name: string | null;
   source_type: WebhookSourceType;
   is_active: boolean;
+  prompt: string | null;
   invoke_url: string | null;
   created_at: string;
   updated_at: string;
@@ -19,6 +20,7 @@ export interface WebhookCreateRequest {
   agent_id: string;
   source_type?: WebhookSourceType;
   is_active?: boolean;
+  prompt?: string | null;
 }
 
 export interface WebhookUpdateRequest {
@@ -27,6 +29,7 @@ export interface WebhookUpdateRequest {
   agent_id?: string;
   source_type?: WebhookSourceType;
   is_active?: boolean;
+  prompt?: string | null;
 }
 
 export interface WebhookInvocation {

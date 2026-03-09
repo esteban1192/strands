@@ -33,6 +33,7 @@ class WebhookService:
             agent_name=agent_name,
             source_type=webhook.source_type,
             is_active=webhook.is_active,
+            prompt=webhook.prompt,
             invoke_url=invoke_url,
             created_at=webhook.created_at,
             updated_at=webhook.updated_at,
@@ -89,6 +90,7 @@ class WebhookService:
             agent_id=data.agent_id,
             source_type=data.source_type.value,
             is_active=data.is_active,
+            prompt=data.prompt,
         )
         db.add(webhook)
         await db.commit()
@@ -118,6 +120,8 @@ class WebhookService:
             update_data["source_type"] = data.source_type.value
         if data.is_active is not None:
             update_data["is_active"] = data.is_active
+        if data.prompt is not None:
+            update_data["prompt"] = data.prompt or None
 
         if update_data:
             update_data["updated_at"] = datetime.utcnow()
