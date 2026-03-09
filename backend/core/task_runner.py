@@ -138,7 +138,18 @@ class TaskRunner:
             async with get_db_session() as db:
                 existing = await ChatService.get_messages_as_dicts(db, task_chat_id)
                 if not existing:
-                    user_msg = [{"role": "user", "content": [{"text": instruction}]}]
+                    ancestor_ctx = await ChatService.get_ancestor_context(
+                        db, task_chat_id,
+                    )
+                    if ancestor_ctx:
+                        enriched = (
+                            f"{ancestor_ctx}\n\n"
+                            f"<task_instruction>\n{instruction}\n</task_instruction>"
+                        )
+                    else:
+                        enriched = instruction
+
+                    user_msg = [{"role": "user", "content": [{"text": enriched}]}]
                     await ChatService.add_messages(
                         db, task_chat_id, user_msg, agent_id=agent_id,
                     )

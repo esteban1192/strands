@@ -23,7 +23,7 @@ from sqlalchemy.orm import selectinload
 
 from ..db_models import (
     ChatModel, ChatMessageModel, ChatToolCallModel, ChatToolResultModel,
-    ChatDelegationModel,
+    ChatDelegationModel, ChatTaskModel,
 )
 from ..models import (
     ChatResponse,
@@ -205,6 +205,75 @@ class ChatService:
             grouped.append({"role": role, "content": content_blocks})
 
         return grouped
+
+    @staticmethod
+    async def get_ancestor_context(
+        db: AsyncSession,
+        chat_id: uuid.UUID,
+        _depth: int = 0,
+        _max_depth: int = 10,
+    ) -> str:
+        """Build structured context from ancestor chats in the task chain.
+
+        Walks up the chain ``chat → task → source_chat → …`` recursively,
+        collecting user and assistant **text** messages from each ancestor.
+        Tool-call and tool-result blocks are omitted to keep the context
+        focused on the conversation narrative.
+
+        Returns an XML-formatted string ordered from furthest ancestor to
+        nearest, or an empty string when the chat has no ancestors (i.e. it
+        is not a task chat).
+
+        Args:
+            chat_id: The (task) chat whose ancestor context to retrieve.
+            _depth:  Internal recursion counter — do not set manually.
+            _max_depth: Safety cap on recursion depth.
+        """
+        if _depth >= _max_depth:
+            return ""
+
+        stmt = select(ChatModel).where(ChatModel.id == chat_id)
+        result = await db.execute(stmt)
+        chat = result.scalar_one_or_none()
+        if not chat or not chat.task_id:
+            return ""
+
+        stmt = select(ChatTaskModel).where(ChatTaskModel.id == chat.task_id)
+        result = await db.execute(stmt)
+        task = result.scalar_one_or_none()
+        if not task:
+            return ""
+
+        source_chat_id = task.source_chat_id
+
+        grandparent_context = await ChatService.get_ancestor_context(
+            db, source_chat_id, _depth=_depth + 1, _max_depth=_max_depth,
+        )
+
+        messages = await ChatService.get_messages_as_dicts(db, source_chat_id)
+
+        lines: List[str] = []
+        for msg in messages:
+            role = msg["role"]
+            for block in msg.get("content", []):
+                if "text" in block:
+                    text = block["text"].strip()
+                    if text:
+                        lines.append(f'<message role="{role}">\n{text}\n</message>')
+
+        if not lines:
+            return grandparent_context
+
+        depth_label = _depth + 1
+        section = (
+            f'<parent_context depth="{depth_label}">\n'
+            + "\n".join(lines)
+            + "\n</parent_context>"
+        )
+
+        if grandparent_context:
+            return grandparent_context + "\n\n" + section
+        return section
 
     @staticmethod
     async def get_next_ordinal(db: AsyncSession, chat_id: uuid.UUID) -> int:
