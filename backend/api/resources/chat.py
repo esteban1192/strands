@@ -436,7 +436,7 @@ async def _handle_sub_agent_approval(
 
     owner_deleg = await ChatService.get_active_delegation(db, chat_id, owning_agent_id)
     if not owner_deleg:
-        raise AgentExecutionError("No active delegation found for owning agent")
+        owner_deleg = await ChatService.create_delegation(db, chat_id, owning_agent_id)
 
     has_cycle = await ChatService.check_delegation_cycle(
         db, chat_id, owner_deleg.id, child_agent_id,

@@ -619,7 +619,7 @@ export default function AgentChat() {
 
             {messages.map((msg) => {
               // Replace create_tasks tool calls and their results with the task table
-              if (msg.message_type === 'tool_call' && msg.tool_call?.tool_name === 'create_tasks') {
+              if (msg.message_type === 'tool_call' && msg.tool_call?.tool_name === 'create_tasks' && msg.is_approved && tasks.length > 0) {
                 return (
                   <div key={msg.id} className="chat-message chat-message--assistant">
                     <span className="chat-message__role">{agent.name}</span>

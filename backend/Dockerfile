@@ -34,5 +34,11 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
 
-# Install dependencies and run the application
-CMD ["sh", "-c", "pip install --no-cache-dir -r requirements.txt && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"]
+# Generate AWS credentials/config from env vars at startup so that MCP servers
+# using boto3.Session(profile_name='default') can resolve the "default" profile.
+CMD ["sh", "-c", "\
+  mkdir -p ~/.aws && \
+  printf '[default]\\naws_access_key_id = %s\\naws_secret_access_key = %s\\n' \"$AWS_ACCESS_KEY_ID\" \"$AWS_SECRET_ACCESS_KEY\" > ~/.aws/credentials && \
+  printf '[default]\\nregion = %s\\n' \"$AWS_REGION\" > ~/.aws/config && \
+  pip install --no-cache-dir -r requirements.txt && \
+  uvicorn main:app --host 0.0.0.0 --port 8000 --reload"]

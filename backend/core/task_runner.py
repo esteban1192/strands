@@ -144,6 +144,10 @@ class TaskRunner:
                     )
                     await db.commit()
 
+                root_deleg = await ChatService.get_active_delegation(db, task_chat_id, agent_id)
+                if not root_deleg:
+                    await ChatService.create_delegation(db, task_chat_id, agent_id)
+
                 history = await ChatService.get_messages_as_dicts(
                     db, task_chat_id, agent_id=agent_id,
                 )
