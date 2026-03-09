@@ -168,7 +168,18 @@ class TaskRunner:
                     db, task_chat_id, agent_id=agent_id,
                 )
 
+                remaining_pending = pending_approvals
                 if pending_approvals:
+                    from api.resources.chat import (
+                        _split_task_calls, _auto_process_create_tasks,
+                    )
+                    task_calls, remaining_pending = _split_task_calls(pending_approvals)
+                    if task_calls:
+                        await _auto_process_create_tasks(
+                            db, task_chat_id, agent_id, task_calls, self,
+                        )
+
+                if remaining_pending or pending_approvals:
                     await TaskService.update_status(db, task_id, "waiting_approval")
                 else:
                     summary = result.response[:2000] if result.response else ""

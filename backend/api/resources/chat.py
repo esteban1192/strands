@@ -651,6 +651,10 @@ async def _try_resume_chain(
         if pending:
             return ""
 
+        has_active_tasks = not await TaskService.all_tasks_terminal_for_chat(db, chat_id)
+        if has_active_tasks:
+            return ""
+
         history = await ChatService.get_messages_as_dicts(
             db, chat_id, agent_id=agent_id,
         )
