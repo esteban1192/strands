@@ -228,13 +228,18 @@ class TaskRunner:
     # ------------------------------------------------------------------
 
     async def _resume_orchestrator(self, chat_id: uuid.UUID) -> None:
-        """Re-invoke the orchestrating agent so it can read task results
-        and synthesise a final answer."""
+        """Re-invoke the agent chain so it can read task results
+        and synthesise a final answer.
+
+        Finds the deepest active delegation and uses ``_try_resume_chain``
+        to walk back up, re-invoking each agent in turn.
+        """
         await event_bus.publish(chat_id, {"type": "thinking"})
 
         async with get_db_session() as db:
             try:
                 from api.db_models import ChatModel
+                from api.resources.chat import _try_resume_chain, _serialize_messages
                 from sqlalchemy import select
 
                 stmt = select(ChatModel).where(ChatModel.id == chat_id)
@@ -244,34 +249,22 @@ class TaskRunner:
                     logger.error("Cannot resume — chat %s not found", chat_id)
                     return
 
-                agent_id = chat.agent_id
+                root_agent_id = chat.agent_id
 
-                history = await ChatService.get_messages_as_dicts(
-                    db, chat_id, agent_id=agent_id,
+                deepest = await ChatService.get_deepest_active_delegation(db, chat_id)
+                start_agent_id = deepest.agent_id if deepest else root_agent_id
+
+                final_response = await _try_resume_chain(
+                    db, chat_id, start_agent_id, root_agent_id,
                 )
-
-                result = await AgentExecutor.invoke(
-                    db, agent_id, None,
-                    history=history, chat_id=chat_id,
-                )
-
-                if result.messages:
-                    await ChatService.add_messages(
-                        db, chat_id, result.messages,
-                        tools_requiring_approval=result.tools_requiring_approval,
-                        agent_id=agent_id,
-                    )
 
                 await ChatService.touch_updated_at(db, chat_id)
 
                 all_messages = await ChatService.get_messages(db, chat_id)
                 await event_bus.publish(chat_id, {
                     "type": "complete",
-                    "response": result.response,
-                    "messages": [
-                        m.model_dump(mode="json") if hasattr(m, "model_dump") else m
-                        for m in all_messages
-                    ],
+                    "response": final_response,
+                    "messages": _serialize_messages(all_messages),
                 })
 
             except Exception as exc:

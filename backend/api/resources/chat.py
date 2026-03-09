@@ -369,6 +369,32 @@ async def _background_approve(
                     db, chat_id, root_agent_id, owning_agent_id,
                     tool_name, tool_input, tool_use_id,
                 )
+            elif tool_name == CREATE_TASKS_TOOL_NAME:
+                import json as _json
+                from core.task_runner import task_runner
+
+                task_defs = (tool_input or {}).get("tasks", [])
+                created = []
+                for item in task_defs:
+                    instruction = item if isinstance(item, str) else item.get("instruction", str(item))
+                    task_agent_id = owning_agent_id
+                    if isinstance(item, dict) and item.get("agent_id"):
+                        task_agent_id = uuid.UUID(item["agent_id"])
+                    task = await TaskService.create_task(
+                        db, source_chat_id=chat_id, agent_id=task_agent_id,
+                        instruction=instruction, tool_use_id=tool_use_id,
+                    )
+                    task_chat = await TaskService.create_task_chat(db, task)
+                    created.append({"task_id": str(task.id), "chat_id": str(task_chat.id),
+                                    "instruction": instruction, "status": "pending"})
+                await db.commit()
+                await ChatService.update_tool_result(
+                    db, chat_id, tool_use_id, _json.dumps(created, indent=2),
+                )
+                await TaskService.resolve_message_ids(db, chat_id)
+                await db.commit()
+                for item in created:
+                    await task_runner.schedule(uuid.UUID(item["task_id"]))
             else:
                 try:
                     real_result = await MCPManager.execute_tool(
@@ -474,15 +500,31 @@ async def _handle_sub_agent_approval(
     child_pending = await ChatService.get_pending_tool_calls(
         db, chat_id, agent_id=child_agent_id,
     )
+
     if child_pending:
-        await ChatService.touch_updated_at(db, chat_id)
-        all_messages = await ChatService.get_messages(db, chat_id)
-        await event_bus.publish(chat_id, {
-            "type": "complete",
-            "response": "",
-            "messages": _serialize_messages(all_messages),
-        })
-        raise _ChildPausedException()
+        from core.task_runner import task_runner
+        task_calls, remaining_pending = _split_task_calls(child_pending)
+        if task_calls:
+            await _auto_process_create_tasks(
+                db, chat_id, child_agent_id, task_calls, task_runner,
+            )
+
+        if remaining_pending or task_calls:
+            await ChatService.touch_updated_at(db, chat_id)
+            all_messages = await ChatService.get_messages(db, chat_id)
+            tasks = await TaskService.get_tasks_for_chat(db, chat_id)
+            event_payload = {
+                "type": "complete",
+                "response": "",
+                "messages": _serialize_messages(all_messages),
+            }
+            if tasks:
+                event_payload["tasks"] = [
+                    TaskService.to_response(t).model_dump(mode="json")
+                    for t in tasks
+                ]
+            await event_bus.publish(chat_id, event_payload)
+            raise _ChildPausedException()
 
     await ChatService.update_tool_result(
         db, chat_id, tool_use_id, child_result.response,
@@ -628,7 +670,14 @@ async def _try_resume_chain(
             db, chat_id, agent_id=agent_id,
         )
         if new_pending:
-            return ""
+            from core.task_runner import task_runner
+            task_calls, remaining = _split_task_calls(new_pending)
+            if task_calls:
+                await _auto_process_create_tasks(
+                    db, chat_id, agent_id, task_calls, task_runner,
+                )
+            if remaining or task_calls:
+                return ""
 
         if agent_id == root_agent_id:
             root_deleg = await ChatService.get_active_delegation(

@@ -181,8 +181,39 @@ def format_alarm_prompt(parsed: Dict[str, Any]) -> str:
 {json.dumps(alarm, indent=2, default=str)}
 ```
 
-Please analyze this incident and provide:
-1. Likely root causes
-2. Impact assessment
-3. Recommended remediation steps
-4. Preventive measures for the future"""
+---
+
+## Your Mission
+
+You are investigating a production incident triggered by the alarm above. Conduct a **thorough, parallel investigation** using all available sub-agents and tools. Do not just summarize the alarm — actively query AWS to gather real evidence.
+
+### Investigation Plan
+
+Use `create_tasks` to run these investigations **in parallel**:
+
+1. **CloudWatch Analysis** — Delegate to your CloudWatch sub-agent:
+   - Retrieve the alarm configuration and recent state history
+   - Pull error metrics and invocation metrics for the affected resource over the last few hours
+   - Search CloudWatch Logs for recent errors, exceptions, and stack traces
+
+2. **IAM & Permissions Audit** — Delegate to your IAM sub-agent:
+   - Identify the execution role attached to the affected resource
+   - Review attached policies and effective permissions
+   - Check for any recent permission changes or denials in CloudTrail
+
+3. **Cross-cutting Checks** — Use any available tools to:
+   - Look for correlated alarms or anomalies in related services
+   - Check resource configuration for recent deployments or changes
+
+### Output Requirements
+
+After all tasks complete, synthesize the findings into a structured incident report:
+
+- **Summary**: One-paragraph overview of what happened
+- **Timeline**: Key events leading up to and during the incident
+- **Root Cause**: Evidence-backed analysis of why the alarm fired
+- **Impact**: Scope and severity of the issue
+- **Remediation**: Concrete steps to resolve the immediate issue
+- **Prevention**: Long-term recommendations to avoid recurrence
+
+Start by creating tasks to run the investigation in parallel."""

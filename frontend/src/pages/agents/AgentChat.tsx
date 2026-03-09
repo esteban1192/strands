@@ -27,10 +27,7 @@ function isToolResultBlock(
 /*  Small sub-components for rendering each content-block type        */
 /* ------------------------------------------------------------------ */
 
-function TextContent({ text, isUser }: { text: string; isUser?: boolean }) {
-  if (isUser) {
-    return <span className="chat-text">{text}</span>;
-  }
+function TextContent({ text }: { text: string }) {
   return <MarkdownRenderer content={text} />;
 }
 
@@ -244,7 +241,7 @@ function MessageBubble({
         {isSubAgentMsg && <span className="chat-message__sub-badge">sub-agent</span>}
       </span>
       <div className="chat-message__bubble">
-        {isTextBlock(block) && <TextContent text={block.text} isUser={displayRole === 'user'} />}
+        {isTextBlock(block) && <TextContent text={block.text} />}
         {isToolUseBlock(block) && (
           <ToolUseContent
             name={block.toolUse.name}

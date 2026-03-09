@@ -673,6 +673,34 @@ class ChatService:
         return False
 
     @staticmethod
+    async def get_deepest_active_delegation(
+        db: AsyncSession,
+        chat_id: uuid.UUID,
+    ) -> Optional[ChatDelegationResponse]:
+        """Find the deepest (innermost) active delegation in a chat.
+
+        Walks from root to leaf following active children.  Returns the
+        leaf, or None if no active delegations exist.
+        """
+        stmt = (
+            select(ChatDelegationModel)
+            .where(
+                ChatDelegationModel.chat_id == chat_id,
+                ChatDelegationModel.status == "active",
+            )
+            .order_by(ChatDelegationModel.created_at)
+        )
+        result = await db.execute(stmt)
+        active = result.scalars().all()
+        if not active:
+            return None
+        active_ids = {d.id for d in active}
+        for d in reversed(active):
+            if not any(c.parent_delegation_id == d.id for c in active):
+                return ChatService._to_delegation_response(d)
+        return ChatService._to_delegation_response(active[-1])
+
+    @staticmethod
     def _to_delegation_response(deleg: ChatDelegationModel) -> ChatDelegationResponse:
         return ChatDelegationResponse(
             id=deleg.id,

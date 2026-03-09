@@ -598,6 +598,7 @@
   border-radius: 10px;
   overflow: hidden;
   margin: 0.3rem 0;
+  max-width: 100%;
 }
 
 .task-table__header {
@@ -652,11 +653,10 @@
 
 .task-table__instruction {
   flex: 1;
+  min-width: 0;
   color: var(--color-text-primary);
-  line-height: 1.3;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .task-table__link {
